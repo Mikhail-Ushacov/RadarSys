@@ -1,0 +1,351 @@
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  font-family: 'JetBrains Mono', monospace, -apple-system, sans-serif;
+  background-color: #0b0f19;
+  color: #e2e8f0;
+}
+
+body, html, #root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.tactical-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+.sidebar {
+  width: 380px;
+  background: #111827;
+  border-right: 1px solid #1f2937;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  box-sizing: border-box;
+  z-index: 1000;
+}
+
+.map-pane {
+  flex: 1;
+  position: relative;
+}
+
+.btn-add-object {
+  background: #0284c7;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-add-object:hover { background: #0369a1; }
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+.badge-safe { background: #065f46; color: #34d399; }
+.badge-danger { background: #7f1d1d; color: #f87171; }
+.badge-armed { background: #d97706; color: #fef3c7; }
+.badge-jamming { background: #dc2626; color: #ffffff; animation: blink 1s infinite; }
+
+@keyframes blink {
+  50% { opacity: 0.5; }
+}
+
+/* Модальне вікно створення тактичних об'єктів */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(4px);
+}
+
+.tactical-modal {
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  width: 520px;
+  max-width: 90vw;
+  padding: 1.5rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #1f2937;
+  padding-bottom: 0.8rem;
+  margin-bottom: 1rem;
+}
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #38bdf8;
+  letter-spacing: 0.05em;
+}
+.btn-close {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+}
+.btn-close:hover { color: #fff; }
+
+.category-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.cat-btn {
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #cbd5e1;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.cat-btn.active {
+  border-color: #38bdf8;
+  background: #0f2744;
+  color: #fff;
+}
+.cat-btn.active.danger {
+  border-color: #ef4444;
+  background: #450a0a;
+}
+.cat-btn.active.safe {
+  border-color: #10b981;
+  background: #064e3b;
+}
+
+.form-group {
+  margin-bottom: 0.9rem;
+}
+.form-group label {
+  display: block;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+.tactical-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+.tactical-input:focus {
+  outline: none;
+  border-color: #38bdf8;
+}
+
+.coords-row {
+  display: flex;
+  gap: 10px;
+}
+.coords-row .form-group {
+  flex: 1;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 1.2rem;
+}
+.btn-secondary {
+  background: #374151;
+  color: #e2e8f0;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.btn-primary {
+  background: #0284c7;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.btn-primary:hover { background: #0369a1; }
+
+.custom-tactical-pin {
+  cursor: grab !important;
+}
+
+.custom-tactical-pin:active {
+  cursor: grabbing !important;
+}
+
+.custom-tactical-pin .pin-inner {
+  transition: transform 0.15s ease-out;
+}
+
+.custom-tactical-pin:hover .pin-inner {
+  transform: scale(1.15);
+}
+
+/* Тактичний віджет координат курсора */
+.cursor-coordinate-hud {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(17, 24, 39, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 6px;
+  padding: 8px 14px;
+  z-index: 1000;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  font-family: 'JetBrains Mono', monospace, sans-serif;
+  user-select: none;
+}
+
+.hud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
+.hud-row:not(:last-child) {
+  margin-bottom: 4px;
+}
+
+.hud-title {
+  color: #9ca3af;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.hud-value {
+  color: #f8fafc;
+  font-weight: bold;
+}
+
+.hud-dimmed {
+  color: #64748b;
+  font-style: italic;
+}
+
+.click-mode-toggle-card {
+  margin-top: 0.6rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.btn-toggle-switch {
+  border: none;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-toggle-switch.enabled {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.btn-toggle-switch.disabled {
+  background: #334155;
+  color: #94a3b8;
+}
+
+/* Кнопка редагування в HUD */
+.btn-icon-hud {
+  background: transparent;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  color: #94a3b8;
+  padding: 3px 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-icon-hud:hover {
+  background: #374151;
+  color: #38bdf8;
+}
+
+/* Кнопки всередині Popup на карті */
+.popup-tactical {
+  color: #0f172a;
+  font-size: 0.85rem;
+  min-width: 170px;
+}
+
+.btn-popup-edit {
+  background: #0284c7;
+  color: #fff;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-popup-edit:hover { background: #0369a1; }
+
+.btn-popup-delete {
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-popup-delete:hover { background: #dc2626; }
