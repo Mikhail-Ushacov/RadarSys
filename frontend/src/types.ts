@@ -1,6 +1,7 @@
 // frontend/src/types.ts
 export interface Track {
   id: string;
+  status?: 'CRUISING' | 'JAMMED' | 'CRASHED';
   lat: number;
   lon: number;
   alt: number;
@@ -10,6 +11,9 @@ export interface Track {
   predicted_60s: [number, number];
   crash_point: [number, number];
   is_safe_to_engage: boolean;
+  is_ci_critical?: boolean;
+  ci_distance?: number;
+  nearest_ci?: string;
 }
 
 export interface EWNode {
@@ -22,6 +26,7 @@ export interface EWNode {
   max_range: number;
   is_armed: boolean;
   is_transmitting: boolean;
+  target_lead_coord?: [number, number] | null;
 }
 
 export interface TacticalZone {
@@ -54,4 +59,8 @@ export interface TacticalUpdate {
   zones: TacticalZone[];
   sensors: TacticalSensor[];
   timestamp: number;
+  simulation_active?: boolean;
+  auto_tracking?: boolean;
+  emergency_override?: boolean;
+  threat_info?: string | null;
 }

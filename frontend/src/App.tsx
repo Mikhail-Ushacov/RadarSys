@@ -10,11 +10,13 @@ export const App: React.FC = () => {
   const [ewNodes, setEwNodes] = useState<EWNode[]>([]);
   const [zones, setZones] = useState<TacticalZone[]>([]);
   const [sensors, setSensors] = useState<TacticalSensor[]>([]);
+  const [simulationActive, setSimulationActive] = useState<boolean>(true);
+  const [autoTracking, setAutoTracking] = useState<boolean>(true);
+  const [emergencyOverride, setEmergencyOverride] = useState<boolean>(false);
+  const [threatInfo, setThreatInfo] = useState<string | null>(null);
   
-  // Режим створення нового об'єкта при кліку на карті (за замовчуванням увімкнено)
-  const [allowMapClickToAdd, setAllowMapClickToAdd] = useState<boolean>(true);
+  const [allowMapClickToAdd, setAllowMapClickToAdd] = useState<boolean>(false);
 
-  // Стан модального вікна та об'єкта для редагування
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingObject, setEditingObject] = useState<EditableObject | null>(null);
   const [selectedCoords, setSelectedCoords] = useState<{ lat: number; lon: number }>({
@@ -22,7 +24,6 @@ export const App: React.FC = () => {
     lon: 30.5234
   });
 
-  // Захист від перезапису координат під час перетягування та 2.5 сек після нього
   const draggingIdRef = useRef<string | null>(null);
   const lastDragTimeRef = useRef<number>(0);
   const recentlyMovedRef = useRef<Map<string, number>>(new Map());
@@ -35,10 +36,14 @@ export const App: React.FC = () => {
     ws.onmessage = (event) => {
       const data: TacticalUpdate = JSON.parse(event.data);
       setTracks(data.tracks || []);
+      if (data.simulation_active !== undefined) setSimulationActive(data.simulation_active);
+      if (data.auto_tracking !== undefined) setAutoTracking(data.auto_tracking);
+      if (data.emergency_override !== undefined) setEmergencyOverride(data.emergency_override);
+      setThreatInfo(data.threat_info || null);
 
       const now = Date.now();
 
-      // Оновлюємо списки, блокуючи перетирання об'єктів, які перетягують або щойно перемістили
+      // Оновлюємо РЕБ із динамічним кутом наведення та шириною променя
       setEwNodes((prev) => {
         return (data.ew_nodes || []).map((node) => {
           const key = `ew-${node.id}`;
@@ -76,6 +81,22 @@ export const App: React.FC = () => {
     return () => ws.close();
   }, []);
 
+  const handleToggleSimulation = async () => {
+    await fetch(`${backendUrl}/api/v1/simulation/toggle`, { method: 'POST' });
+  };
+
+  const handleToggleAutoTracking = async () => {
+    await fetch(`${backendUrl}/api/v1/ew/toggle_autotracking`, { method: 'POST' });
+  };
+
+  const handleResetSimulation = async () => {
+    await fetch(`${backendUrl}/api/v1/simulation/reset`, { method: 'POST' });
+  };
+
+  const handleResetGrid = async () => {
+    await fetch(`${backendUrl}/api/v1/zones/reset_full_grid`, { method: 'POST' });
+  };
+
   const handleTriggerBurst = async (nodeId: number) => {
     await fetch(`${backendUrl}/api/v1/ew/arm`, {
       method: 'POST',
@@ -85,7 +106,6 @@ export const App: React.FC = () => {
   };
 
   const handleMapClick = (lat: number, lon: number) => {
-    // Якщо створення по ЛКМ вимкнено або клік стався в момент відпускання маркера
     if (!allowMapClickToAdd) return;
     if (Date.now() - lastDragTimeRef.current < 450) return;
 
@@ -104,7 +124,6 @@ export const App: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  // Видалення об'єктів
   const handleDeleteZone = async (id: number) => {
     setZones((prev) => prev.filter((z) => z.id !== id));
     await fetch(`${backendUrl}/api/v1/zones/${id}`, { method: 'DELETE' });
@@ -120,7 +139,6 @@ export const App: React.FC = () => {
     await fetch(`${backendUrl}/api/v1/ew/node/${id}`, { method: 'DELETE' });
   };
 
-  // Drag & drop handlers
   const handleDragStart = (uniqueId: string) => {
     draggingIdRef.current = uniqueId;
   };
@@ -130,7 +148,6 @@ export const App: React.FC = () => {
     recentlyMovedRef.current.set(`ew-${id}`, Date.now() + 2500);
     draggingIdRef.current = null;
 
-    // Оптимістичне оновлення локального стану
     setEwNodes((prev) => prev.map((n) => (n.id === id ? { ...n, lat, lon } : n)));
 
     await fetch(`${backendUrl}/api/v1/ew/node/${id}`, {
@@ -176,7 +193,15 @@ export const App: React.FC = () => {
         sensors={sensors}
         zones={zones}
         allowMapClickToAdd={allowMapClickToAdd}
+        simulationActive={simulationActive}
+        autoTracking={autoTracking}
+        emergencyOverride={emergencyOverride}
+        threatInfo={threatInfo}
         onToggleMapClickToAdd={() => setAllowMapClickToAdd((prev) => !prev)}
+        onToggleSimulation={handleToggleSimulation}
+        onToggleAutoTracking={handleToggleAutoTracking}
+        onResetSimulation={handleResetSimulation}
+        onResetGrid={handleResetGrid}
         onTriggerBurst={handleTriggerBurst} 
         onOpenAddModal={handleOpenAddModal}
         onEditObject={handleEditObject}

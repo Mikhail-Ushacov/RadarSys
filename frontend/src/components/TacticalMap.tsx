@@ -60,16 +60,33 @@ const createCustomIcon = (svgContent: string, bg: string, border: string) => {
 };
 
 const icons = {
-  drone: (heading: number) => L.divIcon({
-    className: 'custom-drone-icon',
-    html: `<div style="transform: rotate(${heading}deg); width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;">
-             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5">
-               <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
-             </svg>
-           </div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13]
-  }),
+  drone: (heading: number, status?: string) => {
+    if (status === 'CRASHED') {
+      return L.divIcon({
+        className: 'custom-drone-crashed',
+        html: `<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: #991b1b; border: 2px solid #f87171; border-radius: 50%; box-shadow: 0 0 15px #ef4444;">
+                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5">
+                   <line x1="18" y1="6" x2="6" y2="18"></line>
+                   <line x1="6" y1="6" x2="18" y2="18"></line>
+                 </svg>
+               </div>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16]
+      });
+    }
+
+    const isJammed = status === 'JAMMED';
+    return L.divIcon({
+      className: isJammed ? 'custom-drone-jammed' : 'custom-drone-icon',
+      html: `<div style="transform: rotate(${heading}deg); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; ${isJammed ? 'filter: drop-shadow(0 0 8px #f59e0b);' : ''}">
+               <svg width="30" height="30" viewBox="0 0 24 24" fill="${isJammed ? '#f59e0b' : '#ef4444'}" stroke="#ffffff" stroke-width="1.8">
+                 <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
+               </svg>
+             </div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+  },
   ew: (isTransmitting: boolean) => createCustomIcon(
     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${isTransmitting ? '#fff' : '#38bdf8'}" stroke-width="2"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg>`,
     isTransmitting ? '#dc2626' : '#0f172a',
@@ -107,17 +124,12 @@ const MapEventsController: React.FC<{
   onMouseMove: (lat: number, lon: number) => void;
 }> = ({ onMapClick, onMouseMove }) => {
   useMapEvents({
-    click(e) {
-      onMapClick(e.latlng.lat, e.latlng.lng);
-    },
-    mousemove(e) {
-      onMouseMove(e.latlng.lat, e.latlng.lng);
-    }
+    click(e) { onMapClick(e.latlng.lat, e.latlng.lng); },
+    mousemove(e) { onMouseMove(e.latlng.lat, e.latlng.lng); }
   });
   return null;
 };
 
-// --- Окремий стабільний маркер РЕБ ---
 const EWNodeMarkerItem: React.FC<{
   node: EWNode;
   onDragStart: (id: string) => void;
@@ -133,9 +145,7 @@ const EWNodeMarkerItem: React.FC<{
 
   const eventHandlers = useMemo(
     () => ({
-      dragstart() {
-        onDragStart(`ew-${node.id}`);
-      },
+      dragstart() { onDragStart(`ew-${node.id}`); },
       dragend(e: L.LeafletEvent) {
         const marker = e.target as L.Marker;
         const latlng = marker.getLatLng();
@@ -164,38 +174,32 @@ const EWNodeMarkerItem: React.FC<{
           color: node.is_transmitting ? '#ef4444' : '#0284c7',
           weight: 1.5,
           fillColor: node.is_transmitting ? '#dc2626' : '#38bdf8',
-          fillOpacity: node.is_transmitting ? 0.5 : 0.2
+          fillOpacity: node.is_transmitting ? 0.65 : 0.22
         }}
       />
-      <Marker
-        position={memoPos}
-        icon={icons.ew(node.is_transmitting)}
-        draggable={true}
-        eventHandlers={eventHandlers}
-      >
+      {node.target_lead_coord && (
+        <Polyline 
+          positions={[memoPos, node.target_lead_coord]}
+          pathOptions={{
+            color: node.is_transmitting ? '#ef4444' : '#38bdf8',
+            weight: 2,
+            dashArray: '4, 4'
+          }}
+        />
+      )}
+      <Marker position={memoPos} icon={icons.ew(node.is_transmitting)} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
           <div className="popup-tactical">
             <strong style={{ color: '#0284c7' }}>{node.name}</strong>
-            <p style={{ margin: '3px 0' }}>Азимут: <b>{node.azimuth}°</b> (Кут {node.beamwidth}°)</p>
+            <p style={{ margin: '3px 0' }}>Наведення: <b>{node.azimuth}°</b></p>
+            <p style={{ margin: '3px 0' }}>Промінь: <b>{node.beamwidth}°</b></p>
             <p style={{ margin: '3px 0' }}>Радіус: <b>{node.max_range} м</b></p>
-            <p style={{ margin: '3px 0' }}>Статус: <b>{node.is_transmitting ? 'АКТИВНЕ ГЛУШІННЯ' : 'ГОТОВНІСТЬ'}</b></p>
+            <p style={{ margin: '3px 0' }}>Статус: <b>{node.is_transmitting ? 'АКТИВНИЙ ВОГОНЬ (JAMMING)' : 'АВТОСУПРОВІД'}</b></p>
             <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditObject({ type: 'ew', data: node });
-                }}
-                className="btn-popup-edit"
-              >
+              <button onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'ew', data: node }); }} className="btn-popup-edit">
                 <Edit3 size={12} /> Редагувати
               </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteEW(node.id);
-                }}
-                className="btn-popup-delete"
-              >
+              <button onClick={(e) => { e.stopPropagation(); onDeleteEW(node.id); }} className="btn-popup-delete">
                 <Trash2 size={12} />
               </button>
             </div>
@@ -206,7 +210,6 @@ const EWNodeMarkerItem: React.FC<{
   );
 };
 
-// --- Окремий стабільний маркер сенсора ---
 const SensorMarkerItem: React.FC<{
   sensor: TacticalSensor;
   onDragStart: (id: string) => void;
@@ -235,9 +238,7 @@ const SensorMarkerItem: React.FC<{
 
   const eventHandlers = useMemo(
     () => ({
-      dragstart() {
-        onDragStart(`sensor-${sensor.id}`);
-      },
+      dragstart() { onDragStart(`sensor-${sensor.id}`); },
       dragend(e: L.LeafletEvent) {
         const marker = e.target as L.Marker;
         const latlng = marker.getLatLng();
@@ -249,23 +250,8 @@ const SensorMarkerItem: React.FC<{
 
   return (
     <>
-      <Circle
-        center={memoPos}
-        radius={sensor.detection_radius}
-        pathOptions={{
-          color: circleColor,
-          fillColor: circleColor,
-          fillOpacity: 0.08,
-          weight: 1,
-          dashArray: '3, 6'
-        }}
-      />
-      <Marker 
-        position={memoPos} 
-        icon={icon}
-        draggable={true}
-        eventHandlers={eventHandlers}
-      >
+      <Circle center={memoPos} radius={sensor.detection_radius} pathOptions={{ color: circleColor, fillColor: circleColor, fillOpacity: 0.08, weight: 1, dashArray: '3, 6' }} />
+      <Marker position={memoPos} icon={icon} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
           <div className="popup-tactical">
             <strong>{sensor.name}</strong>
@@ -273,22 +259,10 @@ const SensorMarkerItem: React.FC<{
             <p style={{ margin: '3px 0' }}>Радіус: <b>{sensor.detection_radius} м</b></p>
             {sensor.description && <p style={{ margin: '3px 0', color: '#475569' }}>{sensor.description}</p>}
             <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditObject({ type: 'sensor', data: sensor });
-                }}
-                className="btn-popup-edit"
-              >
+              <button onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'sensor', data: sensor }); }} className="btn-popup-edit">
                 <Edit3 size={12} /> Редагувати
               </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteSensor(sensor.id);
-                }}
-                className="btn-popup-delete"
-              >
+              <button onClick={(e) => { e.stopPropagation(); onDeleteSensor(sensor.id); }} className="btn-popup-delete">
                 <Trash2 size={12} />
               </button>
             </div>
@@ -299,7 +273,6 @@ const SensorMarkerItem: React.FC<{
   );
 };
 
-// --- Окремий стабільний маркер тактичної зони ---
 const ZoneItem: React.FC<{
   zone: TacticalZone;
   onDragStart: (id: string) => void;
@@ -315,10 +288,7 @@ const ZoneItem: React.FC<{
     () => ({
       dragstart() {
         onDragStart(`zone-${zone.id}`);
-        zoneDragRef.current = {
-          initCenter: center,
-          initCoords: zone.coordinates
-        };
+        zoneDragRef.current = { initCenter: center, initCoords: zone.coordinates };
       },
       dragend(e: L.LeafletEvent) {
         if (!zoneDragRef.current) return;
@@ -326,10 +296,7 @@ const ZoneItem: React.FC<{
         const cur = marker.getLatLng();
         const dLat = cur.lat - zoneDragRef.current.initCenter[0];
         const dLon = cur.lng - zoneDragRef.current.initCenter[1];
-        const finalCoords = zoneDragRef.current.initCoords.map(([pLat, pLon]) => [
-          pLat + dLat,
-          pLon + dLon
-        ]) as [number, number][];
+        const finalCoords = zoneDragRef.current.initCoords.map(([pLat, pLon]) => [pLat + dLat, pLon + dLon]) as [number, number][];
         zoneDragRef.current = null;
         onCommitMoveZone(zone.id, finalCoords);
       }
@@ -344,17 +311,12 @@ const ZoneItem: React.FC<{
         pathOptions={{
           color: isSafe ? '#10b981' : '#ef4444',
           fillColor: isSafe ? '#059669' : '#b91c1c',
-          fillOpacity: 0.25,
-          weight: 2,
+          fillOpacity: 0.22,
+          weight: 1.5,
           dashArray: isSafe ? '4, 4' : undefined
         }}
       />
-      <Marker
-        position={center}
-        icon={icons.zone_anchor(isSafe)}
-        draggable={true}
-        eventHandlers={eventHandlers}
-      >
+      <Marker position={center} icon={icons.zone_anchor(isSafe)} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
           <div className="popup-tactical">
             <strong style={{ color: isSafe ? '#059669' : '#b91c1c' }}>
@@ -362,22 +324,10 @@ const ZoneItem: React.FC<{
             </strong>
             <p style={{ margin: '4px 0', fontWeight: 'bold' }}>{zone.name}</p>
             <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEditObject({ type: 'zone', data: zone });
-                }}
-                className="btn-popup-edit"
-              >
+              <button onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'zone', data: zone }); }} className="btn-popup-edit">
                 <Edit3 size={12} /> Редагувати
               </button>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteZone(zone.id);
-                }}
-                className="btn-popup-delete"
-              >
+              <button onClick={(e) => { e.stopPropagation(); onDeleteZone(zone.id); }} className="btn-popup-delete">
                 <Trash2 size={12} />
               </button>
             </div>
@@ -420,82 +370,62 @@ export const TacticalMap: React.FC<Props> = ({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <MapContainer center={defaultCenter} zoom={11} style={{ width: '100%', height: '100%' }}>
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; CARTO'
-        />
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; CARTO' />
+        <MapEventsController onMapClick={onMapClick} onMouseMove={(lat, lon) => setCursorCoords({ lat, lon })} />
 
-        <MapEventsController 
-          onMapClick={onMapClick} 
-          onMouseMove={(lat, lon) => setCursorCoords({ lat, lon })} 
-        />
-
-        {/* 1. ЗОНИ */}
         {zones.map((zone) => (
-          <ZoneItem
-            key={`zone-${zone.id}`}
-            zone={zone}
-            onDragStart={onDragStart}
-            onCommitMoveZone={onCommitMoveZone}
-            onEditObject={onEditObject}
-            onDeleteZone={onDeleteZone}
-          />
+          <ZoneItem key={`zone-${zone.id}`} zone={zone} onDragStart={onDragStart} onCommitMoveZone={onCommitMoveZone} onEditObject={onEditObject} onDeleteZone={onDeleteZone} />
         ))}
 
-        {/* 2. СЕНСОРИ */}
         {sensors.map((sensor) => (
-          <SensorMarkerItem
-            key={`sensor-${sensor.id}`}
-            sensor={sensor}
-            onDragStart={onDragStart}
-            onCommitMoveSensor={onCommitMoveSensor}
-            onEditObject={onEditObject}
-            onDeleteSensor={onDeleteSensor}
-          />
+          <SensorMarkerItem key={`sensor-${sensor.id}`} sensor={sensor} onDragStart={onDragStart} onCommitMoveSensor={onCommitMoveSensor} onEditObject={onEditObject} onDeleteSensor={onDeleteSensor} />
         ))}
 
-        {/* 3. ВУЗЛИ РЕБ */}
         {ewNodes.map((node) => (
-          <EWNodeMarkerItem
-            key={`ew-${node.id}`}
-            node={node}
-            onDragStart={onDragStart}
-            onCommitMoveEW={onCommitMoveEW}
-            onEditObject={onEditObject}
-            onDeleteEW={onDeleteEW}
-          />
+          <EWNodeMarkerItem key={`ew-${node.id}`} node={node} onDragStart={onDragStart} onCommitMoveEW={onCommitMoveEW} onEditObject={onEditObject} onDeleteEW={onDeleteEW} />
         ))}
 
-        {/* 4. ТРЕКИ ЦІЛЕЙ */}
         {tracks.map((target) => (
           <React.Fragment key={`track-${target.id}`}>
-            <Marker position={[target.lat, target.lon]} icon={icons.drone(target.heading)} />
-            <Polyline
-              positions={[[target.lat, target.lon], target.predicted_30s, target.predicted_60s]}
-              pathOptions={{ color: '#fbbf24', dashArray: '4, 8', weight: 2 }}
-            />
-            <Circle
-              center={target.crash_point}
-              radius={200}
-              pathOptions={{
-                color: target.is_safe_to_engage ? '#10b981' : '#ef4444',
-                fillColor: target.is_safe_to_engage ? '#10b981' : '#ef4444',
-                fillOpacity: 0.35
-              }}
-            />
+            <Marker position={[target.lat, target.lon]} icon={icons.drone(target.heading, target.status)}>
+              <Popup>
+                <div className="popup-tactical">
+                  <strong style={{ color: target.status === 'CRASHED' ? '#ef4444' : target.status === 'JAMMED' ? '#f59e0b' : '#38bdf8' }}>
+                    {target.id} {target.status === 'CRASHED' ? '💥 (ЗБИТО)' : target.status === 'JAMMED' ? '⚡ (ПРИДУШЕНО)' : '(В ПОЛЬОТІ)'}
+                  </strong>
+                  <p style={{ margin: '3px 0' }}>Висота: <b>{target.alt.toFixed(0)} м</b></p>
+                  <p style={{ margin: '3px 0' }}>Швидкість: <b>{(target.speed * 3.6).toFixed(0)} км/год</b></p>
+                  <p style={{ margin: '3px 0' }}>Курс: <b>{target.heading.toFixed(0)}°</b></p>
+                  {target.nearest_ci && <p style={{ margin: '3px 0' }}>До {target.nearest_ci}: <b>{target.ci_distance} м</b></p>}
+                </div>
+              </Popup>
+            </Marker>
+
+            {target.status !== 'CRASHED' && (
+              <>
+                <Polyline positions={[[target.lat, target.lon], target.predicted_30s, target.predicted_60s]} pathOptions={{ color: target.status === 'JAMMED' ? '#f59e0b' : '#fbbf24', dashArray: '4, 8', weight: 2 }} />
+                <Circle
+                  center={target.crash_point}
+                  radius={220}
+                  pathOptions={{
+                    color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                    fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                    fillOpacity: 0.45,
+                    weight: target.is_ci_critical ? 3 : 1.5
+                  }}
+                />
+              </>
+            )}
           </React.Fragment>
         ))}
       </MapContainer>
 
-      {/* Координатний HUD */}
       <div className="cursor-coordinate-hud">
         <div className="hud-row">
           <Navigation size={14} color="#38bdf8" />
           <span className="hud-title">WGS-84:</span>
           {cursorCoords ? (
-            <span className="hud-value">
-              {cursorCoords.lat.toFixed(5)}° N, {cursorCoords.lon.toFixed(5)}° E
-            </span>
+            <span className="hud-value">{cursorCoords.lat.toFixed(5)}° N, {cursorCoords.lon.toFixed(5)}° E</span>
           ) : (
             <span className="hud-value hud-dimmed">НАВЕДІТЬ НА КАРТУ</span>
           )}
@@ -504,9 +434,7 @@ export const TacticalMap: React.FC<Props> = ({
           <div className="hud-row">
             <Move size={14} color="#34d399" />
             <span className="hud-title">LOCAL ENU:</span>
-            <span className="hud-value">
-              X: {deltaX >= '0' ? `+${deltaX}` : deltaX}m | Y: {deltaY >= '0' ? `+${deltaY}` : deltaY}m
-            </span>
+            <span className="hud-value">X: {deltaX >= '0' ? `+${deltaX}` : deltaX}m | Y: {deltaY >= '0' ? `+${deltaY}` : deltaY}m</span>
           </div>
         )}
       </div>
