@@ -30,8 +30,8 @@ class EWNodeUpdate(BaseModel):
 
 class TacticalZoneCreate(BaseModel):
     name: str
-    zone_type: str  # "danger" | "safe"
-    coordinates: List[List[float]]  # [[lat, lon], ...]
+    zone_type: str
+    coordinates: List[List[float]]
 
 class TacticalZoneUpdate(BaseModel):
     name: Optional[str] = None
@@ -40,7 +40,7 @@ class TacticalZoneUpdate(BaseModel):
 
 class TacticalSensorCreate(BaseModel):
     name: str
-    sensor_type: str  # "camera" | "acoustic" | "observation_post" | "witness_report" | "target_asset"
+    sensor_type: str
     lat: float
     lon: float
     alt: float = 0.0
@@ -60,3 +60,18 @@ class ArmEWCommand(BaseModel):
     node_id: int
     arm: bool
     burst_duration: int = 20
+
+class DownedDroneRead(BaseModel):
+    id: int
+    drone_id: str
+    spawn_time: str
+    downed_time: str
+    spawn_coords: str
+    target_name: str
+    interceptor_name: str
+    crash_coords: str
+    crash_zone: str
+    status: str
+
+    class Config:
+        from_attributes = True

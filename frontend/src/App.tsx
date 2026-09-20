@@ -3,13 +3,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { TacticalMap } from './components/TacticalMap';
 import { TargetHUD } from './components/TargetHUD';
 import { TacticalObjectModal, EditableObject } from './components/TacticalObjectModal';
-import { TacticalUpdate, Track, EWNode, TacticalZone, TacticalSensor } from './types';
+import { InterceptionHistoryPage } from './components/InterceptionHistoryPage';
+import { TacticalUpdate, Track, EWNode, TacticalZone, TacticalSensor, DownedDroneDetailed } from './types';
+import { Map as MapIcon, History as HistoryIcon } from 'lucide-react';
 
 export const App: React.FC = () => {
+  const [currentPage, setCurrentPage] = useState<'map' | 'history'>('map');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [ewNodes, setEwNodes] = useState<EWNode[]>([]);
   const [zones, setZones] = useState<TacticalZone[]>([]);
   const [sensors, setSensors] = useState<TacticalSensor[]>([]);
+  const [recentDowned, setRecentDowned] = useState<DownedDroneDetailed[]>([]);
+  const [totalDownedCount, setTotalDownedCount] = useState<number>(0);
+
   const [simulationActive, setSimulationActive] = useState<boolean>(true);
   const [autoTracking, setAutoTracking] = useState<boolean>(true);
   const [emergencyOverride, setEmergencyOverride] = useState<boolean>(false);
@@ -40,10 +46,11 @@ export const App: React.FC = () => {
       if (data.auto_tracking !== undefined) setAutoTracking(data.auto_tracking);
       if (data.emergency_override !== undefined) setEmergencyOverride(data.emergency_override);
       setThreatInfo(data.threat_info || null);
+      if (data.recent_downed) setRecentDowned(data.recent_downed);
+      if (data.total_downed_count !== undefined) setTotalDownedCount(data.total_downed_count);
 
       const now = Date.now();
 
-      // Оновлюємо РЕБ із динамічним кутом наведення та шириною променя
       setEwNodes((prev) => {
         return (data.ew_nodes || []).map((node) => {
           const key = `ew-${node.id}`;
@@ -186,58 +193,92 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="tactical-container">
-      <TargetHUD 
-        tracks={tracks} 
-        ewNodes={ewNodes} 
-        sensors={sensors}
-        zones={zones}
-        allowMapClickToAdd={allowMapClickToAdd}
-        simulationActive={simulationActive}
-        autoTracking={autoTracking}
-        emergencyOverride={emergencyOverride}
-        threatInfo={threatInfo}
-        onToggleMapClickToAdd={() => setAllowMapClickToAdd((prev) => !prev)}
-        onToggleSimulation={handleToggleSimulation}
-        onToggleAutoTracking={handleToggleAutoTracking}
-        onResetSimulation={handleResetSimulation}
-        onResetGrid={handleResetGrid}
-        onTriggerBurst={handleTriggerBurst} 
-        onOpenAddModal={handleOpenAddModal}
-        onEditObject={handleEditObject}
-      />
-      <div className="map-pane">
-        <TacticalMap 
-          tracks={tracks} 
-          ewNodes={ewNodes} 
-          zones={zones}
-          sensors={sensors}
-          onMapClick={handleMapClick}
-          onDeleteZone={handleDeleteZone}
-          onDeleteSensor={handleDeleteSensor}
-          onDeleteEW={handleDeleteEW}
-          onEditObject={handleEditObject}
-          onDragStart={handleDragStart}
-          onCommitMoveEW={handleCommitMoveEW}
-          onCommitMoveSensor={handleCommitMoveSensor}
-          onCommitMoveZone={handleCommitMoveZone}
-        />
-      </div>
+    <div className="app-root-layout">
+      {/* Верхнє навігаційне меню сторінок */}
+      <header className="top-navbar">
+        <div className="navbar-left">
+          <span className="navbar-logo">SURGICAL EW C2</span>
+          <span className="navbar-divider">|</span>
+          <span className="navbar-subtitle">СИСТЕМА ХІРУРГІЧНОГО ПРИДУШЕННЯ БПЛА</span>
+        </div>
+        <div className="navbar-tabs">
+          <button 
+            className={`nav-tab-btn ${currentPage === 'map' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('map')}
+          >
+            <MapIcon size={15} /> ТАКТИЧНА КАРТА
+          </button>
+          <button 
+            className={`nav-tab-btn ${currentPage === 'history' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('history')}
+          >
+            <HistoryIcon size={15} /> ЖУРНАЛ ЗБИТТІВ
+            <span className="nav-tab-badge">{totalDownedCount}</span>
+          </button>
+        </div>
+      </header>
 
-      {isModalOpen && (
-        <TacticalObjectModal
-          initialLat={selectedCoords.lat}
-          initialLon={selectedCoords.lon}
-          editingObject={editingObject}
-          onClose={() => {
-            setIsModalOpen(false);
-            setEditingObject(null);
-          }}
-          onSuccess={() => {
-            setIsModalOpen(false);
-            setEditingObject(null);
-          }}
-        />
+      {/* Перемикання вмісту сторінки */}
+      {currentPage === 'history' ? (
+        <InterceptionHistoryPage onBackToMap={() => setCurrentPage('map')} />
+      ) : (
+        <div className="tactical-container">
+          <TargetHUD 
+            tracks={tracks} 
+            ewNodes={ewNodes} 
+            sensors={sensors}
+            zones={zones}
+            recentDowned={recentDowned}
+            totalDownedCount={totalDownedCount}
+            allowMapClickToAdd={allowMapClickToAdd}
+            simulationActive={simulationActive}
+            autoTracking={autoTracking}
+            emergencyOverride={emergencyOverride}
+            threatInfo={threatInfo}
+            onToggleMapClickToAdd={() => setAllowMapClickToAdd((prev) => !prev)}
+            onToggleSimulation={handleToggleSimulation}
+            onToggleAutoTracking={handleToggleAutoTracking}
+            onResetSimulation={handleResetSimulation}
+            onResetGrid={handleResetGrid}
+            onTriggerBurst={handleTriggerBurst} 
+            onOpenAddModal={handleOpenAddModal}
+            onEditObject={handleEditObject}
+            onOpenHistoryPage={() => setCurrentPage('history')}
+          />
+          <div className="map-pane">
+            <TacticalMap 
+              tracks={tracks} 
+              ewNodes={ewNodes} 
+              zones={zones}
+              sensors={sensors}
+              onMapClick={handleMapClick}
+              onDeleteZone={handleDeleteZone}
+              onDeleteSensor={handleDeleteSensor}
+              onDeleteEW={handleDeleteEW}
+              onEditObject={handleEditObject}
+              onDragStart={handleDragStart}
+              onCommitMoveEW={handleCommitMoveEW}
+              onCommitMoveSensor={handleCommitMoveSensor}
+              onCommitMoveZone={handleCommitMoveZone}
+            />
+          </div>
+
+          {isModalOpen && (
+            <TacticalObjectModal
+              initialLat={selectedCoords.lat}
+              initialLon={selectedCoords.lon}
+              editingObject={editingObject}
+              onClose={() => {
+                setIsModalOpen(false);
+                setEditingObject(null);
+              }}
+              onSuccess={() => {
+                setIsModalOpen(false);
+                setEditingObject(null);
+              }}
+            />
+          )}
+        </div>
       )}
     </div>
   );

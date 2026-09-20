@@ -1,10 +1,10 @@
 // frontend/src/components/TargetHUD.tsx
 import React from 'react';
-import { Track, EWNode, TacticalSensor, TacticalZone } from '../types';
+import { Track, EWNode, TacticalSensor, TacticalZone, DownedDroneDetailed } from '../types';
 import { 
   Crosshair, Zap, Plus, Camera, Mic, 
   Eye, Users, Target, ShieldAlert, ShieldCheck, Edit3, 
-  MousePointerClick, Play, Square, RotateCcw, Grid, Compass, AlertOctagon
+  MousePointerClick, Play, Square, RotateCcw, Grid, Compass, AlertOctagon, History, ArrowRight
 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 
@@ -13,6 +13,8 @@ interface Props {
   ewNodes: EWNode[];
   sensors: TacticalSensor[];
   zones: TacticalZone[];
+  recentDowned: DownedDroneDetailed[];
+  totalDownedCount: number;
   allowMapClickToAdd: boolean;
   simulationActive: boolean;
   autoTracking: boolean;
@@ -26,13 +28,14 @@ interface Props {
   onTriggerBurst: (nodeId: number) => void;
   onOpenAddModal: () => void;
   onEditObject: (obj: EditableObject) => void;
+  onOpenHistoryPage: () => void;
 }
 
 export const TargetHUD: React.FC<Props> = ({ 
-  tracks, ewNodes, sensors, zones,
+  tracks, ewNodes, sensors, zones, recentDowned, totalDownedCount,
   allowMapClickToAdd, simulationActive, autoTracking, emergencyOverride, threatInfo,
   onToggleMapClickToAdd, onToggleSimulation, onToggleAutoTracking, onResetSimulation, onResetGrid,
-  onTriggerBurst, onOpenAddModal, onEditObject
+  onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage
 }) => {
   return (
     <div className="sidebar">
@@ -40,9 +43,14 @@ export const TargetHUD: React.FC<Props> = ({
         <h2 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
           <Crosshair size={20} color="#38bdf8" /> SURGICAL C2 EW
         </h2>
-        <button onClick={onOpenAddModal} className="btn-add-object">
-          <Plus size={16} /> ДОДАТИ
-        </button>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button onClick={onOpenHistoryPage} className="btn-nav-history" title="Перейти до повного журналу збиттів">
+            <History size={14} /> ЖУРНАЛ ({totalDownedCount})
+          </button>
+          <button onClick={onOpenAddModal} className="btn-add-object">
+            <Plus size={15} /> ДОДАТИ
+          </button>
+        </div>
       </div>
 
       {threatInfo && (
@@ -116,9 +124,11 @@ export const TargetHUD: React.FC<Props> = ({
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', marginTop: '0.6rem' }}>
+        {/* АКТИВНІ ЦІЛІ В ПОВІТРІ */}
         <div style={{ marginBottom: '1.2rem' }}>
-          <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
-            Активні цілі (Track Engine)
+          <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
+            <span>Активні цілі в польоті</span>
+            <span style={{ color: '#38bdf8' }}>{tracks.filter(t => t.status !== 'CRASHED').length}</span>
           </h4>
           {tracks.length === 0 && <p style={{ fontSize: '0.8rem', color: '#6b7280' }}>Очікування виявлення цілей...</p>}
           {tracks.map((t) => (
@@ -144,40 +154,67 @@ export const TargetHUD: React.FC<Props> = ({
                   t.is_ci_critical ? 'badge-jamming' :
                   (t.is_safe_to_engage ? 'badge-safe' : 'badge-danger')
                 }`}>
-                  {t.status === 'CRASHED' ? '💥 DOWNED / CRASHED' :
-                   t.status === 'JAMMED' ? '⚡ ПРИДУШЕНО (ПАДІННЯ)' :
+                  {t.status === 'CRASHED' ? '💥 ЗБИТО' :
+                   t.status === 'JAMMED' ? '⚡ ПРИДУШЕНО' :
                    t.is_ci_critical ? 'CI CRITICAL THREAT' :
                    (t.is_safe_to_engage ? 'KILLBOX CLEAR' : 'NO-STRIKE ZONE')}
                 </span>
               </div>
 
               <div style={{ fontSize: '0.75rem', marginTop: '0.4rem', color: '#cbd5e1' }}>
-                <div>Швидкість: <b style={{ color: '#38bdf8' }}>{(t.speed * 3.6).toFixed(0)} км/год</b> ({(t.speed).toFixed(1)} м/с)</div>
+                <div>Швидкість: <b style={{ color: '#38bdf8' }}>{(t.speed * 3.6).toFixed(0)} км/год</b></div>
                 <div>Висота: <b>{t.alt.toFixed(0)} м</b> | Курс: <b>{t.heading.toFixed(0)}°</b></div>
+                {t.target_asset_name && (
+                  <div style={{ color: '#fbbf24', marginTop: '2px' }}>Ціль атаки: <b>{t.target_asset_name}</b></div>
+                )}
                 {t.nearest_ci && (
-                  <div style={{ marginTop: '3px', color: t.is_ci_critical ? '#fca5a5' : '#94a3b8' }}>
+                  <div style={{ marginTop: '2px', color: t.is_ci_critical ? '#fca5a5' : '#94a3b8' }}>
                     До {t.nearest_ci}: <b>{t.ci_distance} м</b>
                   </div>
                 )}
-                
-                <div style={{ marginTop: '4px', fontWeight: 'bold' }}>
-                  {t.status === 'CRASHED' ? (
-                    <span style={{ color: '#ef4444' }}>💥 ЦІЛЬ ЗНЕШКОДЖЕНО РЕБ! Падіння на ґрунт. Очікування нової цілі...</span>
-                  ) : t.status === 'JAMMED' ? (
-                    <span style={{ color: '#f59e0b' }}>⚡ ВТРАТА GPS ТА КЕРУВАННЯ: Дрон зривається вниз під дією РЕБ</span>
-                  ) : t.is_ci_critical ? (
-                    <span style={{ color: '#ef4444' }}>⚠ ЗАГРОЗА ІНФРАСТРУКТУРІ: НЕГАЙНЕ ГЛУШІННЯ</span>
-                  ) : t.is_safe_to_engage ? (
-                    <span style={{ color: '#34d399' }}>✓ Зрив безпечний: падіння в зелену зону (Killbox)</span>
-                  ) : (
-                    <span style={{ color: '#f59e0b' }}>⏳ Очікування виходу в зелений коридор</span>
-                  )}
-                </div>
               </div>
             </div>
           ))}
         </div>
 
+        {/* ВІДЖЕТ: ОСТАННІ 5 ЗБИТИХ ДРОНІВ */}
+        <div style={{ marginBottom: '1.2rem', background: '#111827', border: '1px solid #1e293b', borderRadius: '6px', padding: '0.6rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+            <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', margin: 0 }}>
+              Останні 5 збитих цілей
+            </h4>
+            <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold' }}>
+              Всього: {totalDownedCount}
+            </span>
+          </div>
+
+          {recentDowned.length === 0 ? (
+            <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '4px 0' }}>Ще не збито жодного дрона</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {recentDowned.map((d) => (
+                <div key={d.id} className="mini-downed-item">
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <strong style={{ color: '#f87171', fontSize: '0.75rem' }}>{d.drone_id}</strong>
+                    <span style={{ color: '#64748b', fontSize: '0.68rem' }}>{d.downed_time.split(' ')[1] || d.downed_time}</span>
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                    Збито: <b style={{ color: '#a78bfa' }}>{d.interceptor_name}</b>
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#cbd5e1' }}>
+                    Зона: {d.crash_zone}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button onClick={onOpenHistoryPage} className="btn-view-all-history">
+            Відкрити всю історію перехоплень ({totalDownedCount}) <ArrowRight size={13} />
+          </button>
+        </div>
+
+        {/* ВУЗЛИ РЕБ */}
         <div style={{ marginBottom: '1.2rem' }}>
           <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
             Вузли РЕБ з автонаведенням ({ewNodes.length})
@@ -216,6 +253,7 @@ export const TargetHUD: React.FC<Props> = ({
           ))}
         </div>
 
+        {/* СЕНСОРИ */}
         <div style={{ marginBottom: '1.2rem' }}>
           <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
             Сенсори та об'єкти ({sensors.length})
@@ -238,6 +276,7 @@ export const TargetHUD: React.FC<Props> = ({
           ))}
         </div>
 
+        {/* ЗОНИ */}
         <div>
           <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
             Тактичні зони ({zones.length})

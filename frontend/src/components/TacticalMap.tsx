@@ -354,6 +354,8 @@ interface Props {
   onCommitMoveZone: (id: number, coords: [number, number][]) => void;
 }
 
+const MAP_KEY = (import.meta as any).env?.VITE_MAP_API_KEY || '';
+
 export const TacticalMap: React.FC<Props> = ({ 
   tracks, ewNodes, zones, sensors, 
   onMapClick, onDeleteZone, onDeleteSensor, onDeleteEW, onEditObject,
@@ -370,7 +372,11 @@ export const TacticalMap: React.FC<Props> = ({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <MapContainer center={defaultCenter} zoom={11} style={{ width: '100%', height: '100%' }}>
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; CARTO' />
+        <TileLayer 
+          url={`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${MAP_KEY}`}
+          attribution='&copy; Stadia Maps &copy; OpenStreetMap'
+        />
+
         <MapEventsController onMapClick={onMapClick} onMouseMove={(lat, lon) => setCursorCoords({ lat, lon })} />
 
         {zones.map((zone) => (

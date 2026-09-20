@@ -4,18 +4,19 @@ import json
 import time
 import math
 import random
+from datetime import datetime
 from typing import Dict, List, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from shapely.geometry import Polygon
-from sqlalchemy import select, delete
+from shapely.geometry import Point, Polygon
+from sqlalchemy import select, delete, desc
 import numpy as np
 
 from app.config import settings
 from app.database import init_db, async_session
-from app.models import EWNodeModel, TacticalZoneModel, TacticalSensorModel
+from app.models import EWNodeModel, TacticalZoneModel, TacticalSensorModel, DownedDroneModel
 from app.schemas import (
     DetectionCreate, ArmEWCommand, EWNodeCreate, EWNodeUpdate,
     TacticalZoneCreate, TacticalZoneUpdate,
@@ -27,16 +28,10 @@ from app.core.planner import InterceptionPlanner
 from app.hardware.pelco import PelcoDController
 
 class DroneSimulation:
-    """
-    Автономна модель цілі (Shahed-136) з рандомним спавном за межами району
-    та фізикою зриву керування під впливом спрямованого РЕБ.
-    """
     def __init__(self):
         self.spawn_random()
 
     def spawn_random(self):
-        # Спавн за межами спостережуваного району (радіус 28 - 36 км від базової точки Datum)
-        # Сектор підльоту: Північний захід -> Північ -> Північний схід (від -75° до +75°)
         angle_deg = random.uniform(-75.0, 75.0)
         dist = random.uniform(28000.0, 36000.0)
         rad = math.radians(angle_deg)
@@ -45,16 +40,20 @@ class DroneSimulation:
         self.y = dist * math.cos(rad)
         self.z = random.uniform(170.0, 260.0)
 
-        # Випадковий вибір цілі підльоту з реальних стратегічних точок або центру району
+        self.spawn_lat, self.spawn_lon, _ = enu_to_latlon(self.x, self.y, self.z)
+        self.spawn_time = datetime.now()
+
         targets = [
-            latlon_to_enu(settings.DATUM_LAT + 0.065, settings.DATUM_LON + 0.080)[:2], # ТЕЦ-6
-            latlon_to_enu(settings.DATUM_LAT + 0.150, settings.DATUM_LON - 0.035)[:2], # Київська ГЕС
-            latlon_to_enu(settings.DATUM_LAT + 0.120, settings.DATUM_LON + 0.170)[:2], # ПС 750кВ «Північна»
-            latlon_to_enu(settings.DATUM_LAT + 0.050, settings.DATUM_LON + 0.050)[:2], # Троєщина
-            latlon_to_enu(settings.DATUM_LAT + 0.060, settings.DATUM_LON - 0.020)[:2], # Оболонь
-            latlon_to_enu(settings.DATUM_LAT, settings.DATUM_LON)[:2],                 # Центр Києва
+            ("ТЕЦ-6", latlon_to_enu(settings.DATUM_LAT + 0.065, settings.DATUM_LON + 0.080)[:2]),
+            ("Київська ГЕС", latlon_to_enu(settings.DATUM_LAT + 0.150, settings.DATUM_LON - 0.035)[:2]),
+            ("ПС 750кВ «Північна»", latlon_to_enu(settings.DATUM_LAT + 0.120, settings.DATUM_LON + 0.170)[:2]),
+            ("Ж/М Троєщина", latlon_to_enu(settings.DATUM_LAT + 0.050, settings.DATUM_LON + 0.050)[:2]),
+            ("Ж/М Оболонь", latlon_to_enu(settings.DATUM_LAT + 0.060, settings.DATUM_LON - 0.020)[:2]),
+            ("Урядовий квартал", latlon_to_enu(settings.DATUM_LAT, settings.DATUM_LON)[:2]),
         ]
-        tgt_x, tgt_y = random.choice(targets)
+        target_item = random.choice(targets)
+        self.target_name = target_item[0]
+        tgt_x, tgt_y = target_item[1]
         tgt_x += random.uniform(-1500.0, 1500.0)
         tgt_y += random.uniform(-1500.0, 1500.0)
 
@@ -62,7 +61,7 @@ class DroneSimulation:
         dy = tgt_y - self.y
         dist_to_tgt = math.hypot(dx, dy)
 
-        speed = random.uniform(49.0, 54.0) # ~180-195 км/год
+        speed = random.uniform(49.0, 54.0)
         self.vx = (dx / dist_to_tgt) * speed
         self.vy = (dy / dist_to_tgt) * speed
         self.vz = 0.0
@@ -70,24 +69,25 @@ class DroneSimulation:
         self.status = "CRUISING"  # "CRUISING" | "JAMMED" | "CRASHED"
         self.id = f"SHAHED-{random.randint(101, 999)}"
         self.crashed_timer = 0.0
+        self.interceptor_name = "Невідомо"
+        self.downed_saved = False
 
-    def apply_jamming(self):
-        """Вплив РЕБ: зрив GPS та стабілізації, перехід у балістичне піке."""
+    def apply_jamming(self, interceptor_name: str):
         if self.status == "CRUISING":
             self.status = "JAMMED"
-            self.vz = -random.uniform(5.5, 7.5) # Швидкість падіння 5.5 - 7.5 м/с
+            self.interceptor_name = interceptor_name
+            self.vz = -random.uniform(6.0, 8.5)
 
     def step(self, dt: float):
         if self.status == "CRASHED":
             self.crashed_timer += dt
-            if self.crashed_timer >= 5.0:
+            if self.crashed_timer >= 4.0:
                 self.spawn_random()
             return
 
         if self.status == "JAMMED":
-            # Рух в умовах зриву: інерція польоту + вітрове знесення + вертикальне зниження
-            self.x += (self.vx * 0.85 + settings.WIND_VECTOR_X) * dt
-            self.y += (self.vy * 0.85 + settings.WIND_VECTOR_Y) * dt
+            self.x += (self.vx * 0.82 + settings.WIND_VECTOR_X) * dt
+            self.y += (self.vy * 0.82 + settings.WIND_VECTOR_Y) * dt
             self.z += self.vz * dt
 
             if self.z <= 0.0:
@@ -99,13 +99,11 @@ class DroneSimulation:
                 self.crashed_timer = 0.0
             return
 
-        # Нормальний політ по маршруту з невеликою мікротурбулентністю
         turb_x = math.sin(time.time() / 4.0) * 0.4
         turb_y = math.cos(time.time() / 4.0) * 0.4
         self.x += (self.vx + turb_x) * dt
         self.y += (self.vy + turb_y) * dt
 
-        # Якщо дрон пролетів повз весь район (більше 45 км) — створюємо новий
         if math.hypot(self.x, self.y) > 45000:
             self.spawn_random()
 
@@ -186,7 +184,7 @@ app.add_middleware(
 )
 
 async def c2_calculation_loop():
-    global sim_start_time, auto_tracking_enabled, simulated_drone
+    global sim_start_time, auto_tracking_enabled, simulated_drone, active_trackers
     last_loop_time = time.time()
     
     while True:
@@ -199,6 +197,11 @@ async def c2_calculation_loop():
             simulated_drone.step(dt)
             target_key = simulated_drone.id
             sx_sim, sy_sim, sz_sim = simulated_drone.x, simulated_drone.y, simulated_drone.z
+
+            # Очищуємо старі неактивні трекери
+            for old_id in list(active_trackers.keys()):
+                if old_id != target_key:
+                    active_trackers.pop(old_id, None)
 
             if target_key not in active_trackers:
                 tracker = DroneKalmanFilter(sx_sim, sy_sim, sz_sim)
@@ -219,7 +222,9 @@ async def c2_calculation_loop():
             "simulation_active": simulation_active,
             "auto_tracking": auto_tracking_enabled,
             "emergency_override": False,
-            "threat_info": None
+            "threat_info": None,
+            "recent_downed": [],
+            "total_downed_count": 0
         }
 
         async with async_session() as session:
@@ -262,7 +267,38 @@ async def c2_calculation_loop():
                     ci_x, ci_y, _ = latlon_to_enu(s.lat, s.lon, s.alt)
                     ci_assets.append({"name": s.name, "x": ci_x, "y": ci_y, "lat": s.lat, "lon": s.lon})
 
-            # 3. Обробка треків та оцінка загрози
+            # 3. Збереження збитого дрона в БД (Permanent Crash Record)
+            if simulated_drone.status == "CRASHED" and not simulated_drone.downed_saved:
+                c_lat, c_lon, _ = enu_to_latlon(simulated_drone.x, simulated_drone.y, 0.0)
+                pt = Point(simulated_drone.x, simulated_drone.y)
+                crash_zone_name = "Відкрита місцевість"
+                
+                for z in db_zones:
+                    coords = json.loads(z.coordinates)
+                    enu_points = [latlon_to_enu(p[0], p[1])[:2] for p in coords]
+                    poly = Polygon(enu_points)
+                    if poly.contains(pt):
+                        crash_zone_name = f"{'🟢 ' if z.zone_type == 'safe' else '🔴 '}{z.name}"
+                        break
+
+                downed_record = DownedDroneModel(
+                    drone_id=simulated_drone.id,
+                    spawn_time=simulated_drone.spawn_time,
+                    downed_time=datetime.now(),
+                    spawn_lat=simulated_drone.spawn_lat,
+                    spawn_lon=simulated_drone.spawn_lon,
+                    target_name=simulated_drone.target_name,
+                    interceptor_name=simulated_drone.interceptor_name,
+                    crash_lat=c_lat,
+                    crash_lon=c_lon,
+                    crash_zone=crash_zone_name,
+                    status="CRASHED"
+                )
+                session.add(downed_record)
+                await session.commit()
+                simulated_drone.downed_saved = True
+
+            # 4. Обробка треків та оцінка загрози
             primary_target = None
             for target_id, tracker in list(active_trackers.items()):
                 if not simulation_active:
@@ -283,9 +319,7 @@ async def c2_calculation_loop():
                 imp_lat, imp_lon, _ = enu_to_latlon(imp_x, imp_y, 0)
                 is_safe = InterceptionPlanner.is_safe_drop(imp_x, imp_y, safe_shapely, danger_shapely)
 
-                # Оцінка небезпеки для критичної інфраструктури (до 2500 м)
                 is_ci_critical, min_dist_ci, nearest_ci_name = InterceptionPlanner.evaluate_ci_proximity(sx, sy, ci_assets, threshold_m=2500.0)
-
                 heading = (np.degrees(np.arctan2(vx, vy)) + 360.0) % 360.0
 
                 track_data = {
@@ -303,16 +337,18 @@ async def c2_calculation_loop():
                     "is_ci_critical": is_ci_critical if simulated_drone.status == "CRUISING" else False,
                     "ci_distance": round(min_dist_ci, 0),
                     "nearest_ci": nearest_ci_name,
+                    "target_asset_name": simulated_drone.target_name,
                     "raw_enu": [sx, sy, sz, vx, vy, vz]
                 }
                 payload["tracks"].append(track_data)
                 primary_target = track_data
 
-            # 4. ДИНАМІЧНЕ НАВЕДЕННЯ ТА ЗБИТТЯ ДРОНА РЕБ
+            # 5. Динамічне наведення та збиття дрона РЕБ
             q_nodes = await session.execute(select(EWNodeModel))
             db_nodes = q_nodes.scalars().all()
             
             best_interceptor_id = None
+            best_interceptor_name = "РЕБ"
             min_ew_dist = float('inf')
 
             for node in db_nodes:
@@ -333,6 +369,7 @@ async def c2_calculation_loop():
                         if distance < min_ew_dist:
                             min_ew_dist = distance
                             best_interceptor_id = node.id
+                            best_interceptor_name = node.name
 
                         PelcoDController.build_pan_tilt_command(
                             address=node.id, 
@@ -342,28 +379,24 @@ async def c2_calculation_loop():
                             up=(elevation > 15.0)
                         )
 
-                # --- ЛОГІКА БОЙОВОГО АКТИВУВАННЯ ТА ЗБИТТЯ ---
+                # Бойове придушення
                 if primary_target and primary_target["status"] == "CRUISING":
-                    # Сценарій 1: Екстрений захист критичної інфраструктури
                     if primary_target["is_ci_critical"] and node.id == best_interceptor_id and node.is_armed:
                         node.is_transmitting = True
                         payload["emergency_override"] = True
                         payload["threat_info"] = f"CRITICAL ASSET DEFENSE: Захист {primary_target['nearest_ci']} ({primary_target['ci_distance']}м)"
-                    # Сценарій 2: Хірургічне збиття над безпечною зоною (Killbox)
                     elif auto_tracking_enabled and primary_target["is_safe_to_engage"] and node.id == best_interceptor_id and node.is_armed:
                         node.is_transmitting = True
                         payload["threat_info"] = f"SURGICAL INTERCEPTION: {node.name} глушить ціль над безпечною зоною"
 
-                # Сценарій 3: Якщо дрон вже впав (CRASHED) — вимикаємо автовипромінювання
                 if primary_target and primary_target["status"] == "CRASHED":
                     node.is_transmitting = False
 
-                # --- ПЕРЕВІРКА ВЛУЧАННЯ ПРОМЕНЯ РЕБ ТА ЗРИВ ЦІЛІ ---
+                # Фіксація влучання РЕБ
                 if node.is_transmitting and primary_target and primary_target["status"] == "CRUISING":
                     angle_diff = abs((azimuth - node.current_azimuth + 180.0) % 360.0 - 180.0)
-                    # Якщо дрон у радіусі та в секторі променя антени
                     if distance <= node.max_range and angle_diff <= (node.beamwidth / 2.0 + 4.0):
-                        simulated_drone.apply_jamming()
+                        simulated_drone.apply_jamming(node.name)
                         payload["threat_info"] = f"⚡ ВЛУЧАННЯ РЕБ: {node.name} зірвав наведення {simulated_drone.id}!"
 
                 payload["ew_nodes"].append({
@@ -379,6 +412,28 @@ async def c2_calculation_loop():
                     "target_lead_coord": enu_to_latlon(lead_x, lead_y, lead_z)[:2] if (primary_target and primary_target["status"] != "CRASHED" and auto_tracking_enabled and distance <= node.max_range) else None
                 })
 
+            # 6. Останні 5 збитих дронів та лічильник
+            q_downed = await session.execute(
+                select(DownedDroneModel).order_by(desc(DownedDroneModel.id)).limit(5)
+            )
+            recent_list = q_downed.scalars().all()
+            for row in recent_list:
+                payload["recent_downed"].append({
+                    "id": row.id,
+                    "drone_id": row.drone_id,
+                    "spawn_time": row.spawn_time.strftime("%d.%m.%Y %H:%M:%S") if row.spawn_time else "-",
+                    "downed_time": row.downed_time.strftime("%d.%m.%Y %H:%M:%S") if row.downed_time else "-",
+                    "spawn_coords": f"{row.spawn_lat:.4f}°, {row.spawn_lon:.4f}°",
+                    "target_name": row.target_name,
+                    "interceptor_name": row.interceptor_name,
+                    "crash_coords": f"{row.crash_lat:.4f}°, {row.crash_lon:.4f}°",
+                    "crash_zone": row.crash_zone,
+                    "status": row.status
+                })
+
+            count_res = await session.execute(select(DownedDroneModel.id))
+            payload["total_downed_count"] = len(count_res.scalars().all())
+
             await session.commit()
 
         for conn in list(active_connections):
@@ -388,6 +443,41 @@ async def c2_calculation_loop():
                 active_connections.remove(conn)
 
 # --- REST API ---
+
+@app.get("/api/v1/downed_drones")
+async def get_downed_drones():
+    async with async_session() as session:
+        res = await session.execute(select(DownedDroneModel).order_by(desc(DownedDroneModel.id)))
+        items = res.scalars().all()
+        return [
+            {
+                "id": r.id,
+                "drone_id": r.drone_id,
+                "spawn_time": r.spawn_time.strftime("%d.%m.%Y %H:%M:%S") if r.spawn_time else "-",
+                "downed_time": r.downed_time.strftime("%d.%m.%Y %H:%M:%S") if r.downed_time else "-",
+                "spawn_coords": f"{r.spawn_lat:.5f}°, {r.spawn_lon:.5f}°",
+                "target_name": r.target_name,
+                "interceptor_name": r.interceptor_name,
+                "crash_coords": f"{r.crash_lat:.5f}°, {r.crash_lon:.5f}°",
+                "crash_zone": r.crash_zone,
+                "status": r.status
+            }
+            for r in items
+        ]
+
+@app.delete("/api/v1/downed_drones")
+async def clear_downed_drones():
+    async with async_session() as session:
+        await session.execute(delete(DownedDroneModel))
+        await session.commit()
+    return {"status": "cleared"}
+
+@app.delete("/api/v1/downed_drones/{drone_id}")
+async def delete_downed_drone(drone_id: int):
+    async with async_session() as session:
+        await session.execute(delete(DownedDroneModel).where(DownedDroneModel.id == drone_id))
+        await session.commit()
+    return {"status": "deleted"}
 
 @app.post("/api/v1/simulation/toggle")
 async def toggle_simulation():

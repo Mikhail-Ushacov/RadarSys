@@ -24,7 +24,6 @@ class TacticalZoneModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     zone_type = Column(String, nullable=False)  # "danger" або "safe"
-    # Геометрія полігону у форматі JSON-рядка [[lat, lon], [lat, lon], ...]
     coordinates = Column(Text, nullable=False)
 
 class TacticalSensorModel(Base):
@@ -32,20 +31,36 @@ class TacticalSensorModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
-    sensor_type = Column(String, nullable=False) # "camera", "acoustic", "observation_post", "witness_report", "target_asset"
+    sensor_type = Column(String, nullable=False)
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     alt = Column(Float, default=0.0)
-    detection_radius = Column(Float, default=1000.0) # Радіус виявлення / засікання (м)
+    detection_radius = Column(Float, default=1000.0)
     description = Column(String, default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class DownedDroneModel(Base):
+    __tablename__ = "downed_drones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    drone_id = Column(String, index=True)
+    spawn_time = Column(DateTime(timezone=True), server_default=func.now())
+    downed_time = Column(DateTime(timezone=True), server_default=func.now())
+    spawn_lat = Column(Float, nullable=False)
+    spawn_lon = Column(Float, nullable=False)
+    target_name = Column(String, default="Невідомо")
+    interceptor_name = Column(String, default="Комплекс РЕБ")
+    crash_lat = Column(Float, nullable=False)
+    crash_lon = Column(Float, nullable=False)
+    crash_zone = Column(String, default="Відкрита місцевість")
+    status = Column(String, default="CRASHED")
 
 class DetectionEvent(Base):
     __tablename__ = "detection_events"
 
     id = Column(Integer, primary_key=True, index=True)
     sensor_id = Column(String, index=True)
-    sensor_type = Column(String)  # acoustic, optical, crowdsource
+    sensor_type = Column(String)
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     alt = Column(Float, default=150.0)

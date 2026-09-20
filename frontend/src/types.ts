@@ -14,6 +14,7 @@ export interface Track {
   is_ci_critical?: boolean;
   ci_distance?: number;
   nearest_ci?: string;
+  target_asset_name?: string;
 }
 
 export interface EWNode {
@@ -53,6 +54,19 @@ export interface TacticalSensor {
   description?: string;
 }
 
+export interface DownedDroneDetailed {
+  id: number;
+  drone_id: string;
+  spawn_time: string;
+  downed_time: string;
+  spawn_coords: string;
+  target_name: string;
+  interceptor_name: string;
+  crash_coords: string;
+  crash_zone: string;
+  status: string;
+}
+
 export interface TacticalUpdate {
   tracks: Track[];
   ew_nodes: EWNode[];
@@ -63,4 +77,6 @@ export interface TacticalUpdate {
   auto_tracking?: boolean;
   emergency_override?: boolean;
   threat_info?: string | null;
+  recent_downed?: DownedDroneDetailed[];
+  total_downed_count?: number;
 }
