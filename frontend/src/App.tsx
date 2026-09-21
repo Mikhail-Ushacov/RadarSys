@@ -37,10 +37,18 @@ export const App: React.FC = () => {
   const backendUrl = `http://${window.location.hostname}:8000`;
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/tactical`);
+    let ws: WebSocket | null = null;
+    let closed = false;
+    let retry = 0;
+    let timer: number | undefined;
 
-    ws.onmessage = (event) => {
-      const data: TacticalUpdate = JSON.parse(event.data);
+    const connect = () => {
+      if (closed) return;
+      ws = new WebSocket(`ws://${window.location.hostname}:8000/ws/tactical`);
+
+      ws.onmessage = (event) => {
+        retry = 0;
+        const data: TacticalUpdate = JSON.parse(event.data);
       setTracks(data.tracks || []);
       if (data.simulation_active !== undefined) setSimulationActive(data.simulation_active);
       if (data.auto_tracking !== undefined) setAutoTracking(data.auto_tracking);
@@ -83,9 +91,25 @@ export const App: React.FC = () => {
           return zone;
         });
       });
+      };
+
+      ws.onclose = () => {
+        if (closed) return;
+        retry += 1;
+        const backoff = Math.min(10000, 500 * 2 ** Math.min(retry, 5));
+        timer = window.setTimeout(connect, backoff);
+      };
+      ws.onerror = () => {
+        try { ws?.close(); } catch { /* ignore */ }
+      };
     };
 
-    return () => ws.close();
+    connect();
+    return () => {
+      closed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      try { ws?.close(); } catch { /* ignore */ }
+    };
   }, []);
 
   const handleToggleSimulation = async () => {

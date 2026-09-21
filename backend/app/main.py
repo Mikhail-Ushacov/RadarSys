@@ -11,7 +11,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from shapely.geometry import Point, Polygon
-from sqlalchemy import select, delete, desc
+from sqlalchemy import select, delete, desc, func
+import logging
 import numpy as np
 
 from app.config import settings
@@ -27,13 +28,17 @@ from app.core.kalman import DroneKalmanFilter
 from app.core.planner import InterceptionPlanner
 from app.hardware.pelco import PelcoDController
 
+logger = logging.getLogger(__name__)
+
+
 class DroneSimulation:
     def __init__(self):
+        self.t_sim = 0.0
         self.spawn_random()
 
     def spawn_random(self):
         angle_deg = random.uniform(-75.0, 75.0)
-        dist = random.uniform(28000.0, 36000.0)
+        dist = random.uniform(8000.0, 15000.0)
         rad = math.radians(angle_deg)
 
         self.x = dist * math.sin(rad)
@@ -99,8 +104,9 @@ class DroneSimulation:
                 self.crashed_timer = 0.0
             return
 
-        turb_x = math.sin(time.time() / 4.0) * 0.4
-        turb_y = math.cos(time.time() / 4.0) * 0.4
+        self.t_sim += dt
+        turb_x = math.sin(self.t_sim / 4.0) * 0.4
+        turb_y = math.cos(self.t_sim / 4.0) * 0.4
         self.x += (self.vx + turb_x) * dt
         self.y += (self.vy + turb_y) * dt
 
@@ -114,6 +120,9 @@ active_connections: list[WebSocket] = []
 simulation_active = True
 sim_start_time = time.time()
 auto_tracking_enabled = True
+
+_zone_cache: Dict = {"fp": None, "safe": [], "danger": [], "items": []}
+_burst_generations: Dict[int, int] = {}
 
 async def populate_tactical_database(session):
     b_lat = settings.DATUM_LAT
@@ -205,13 +214,15 @@ async def c2_calculation_loop():
 
             if target_key not in active_trackers:
                 tracker = DroneKalmanFilter(sx_sim, sy_sim, sz_sim)
-                tracker.state[3] = simulated_drone.vx
-                tracker.state[4] = simulated_drone.vy
-                tracker.state[5] = simulated_drone.vz
                 active_trackers[target_key] = tracker
             else:
                 active_trackers[target_key].predict(dt)
-                active_trackers[target_key].update(np.array([sx_sim, sy_sim, sz_sim]))
+                noisy_meas = np.array([
+                    sx_sim + float(np.random.normal(0.0, 8.0)),
+                    sy_sim + float(np.random.normal(0.0, 8.0)),
+                    sz_sim + float(np.random.normal(0.0, 3.0)),
+                ])
+                active_trackers[target_key].update(noisy_meas)
 
         payload = {
             "tracks": [],
@@ -228,26 +239,43 @@ async def c2_calculation_loop():
         }
 
         async with async_session() as session:
+            db_dirty = False
             # 1. Завантаження зон
             q_zones = await session.execute(select(TacticalZoneModel))
             db_zones = q_zones.scalars().all()
-            safe_shapely = []
-            danger_shapely = []
-            
-            for z in db_zones:
-                coords = json.loads(z.coordinates)
-                enu_points = [latlon_to_enu(p[0], p[1])[:2] for p in coords]
-                poly = Polygon(enu_points)
-                if z.zone_type == "safe":
-                    safe_shapely.append(poly)
-                else:
-                    danger_shapely.append(poly)
+            zone_fp = tuple((z.id, z.zone_type, z.coordinates) for z in db_zones)
+            if _zone_cache["fp"] != zone_fp:
+                safe_shapely = []
+                danger_shapely = []
+                items = []
+                for z in db_zones:
+                    coords = json.loads(z.coordinates)
+                    enu_points = [latlon_to_enu(p[0], p[1])[:2] for p in coords]
+                    try:
+                        poly = Polygon(enu_points)
+                        if not poly.is_valid:
+                            poly = poly.buffer(0)
+                    except Exception:
+                        continue
+                    items.append((poly, z.name, z.zone_type))
+                    if z.zone_type == "safe":
+                        safe_shapely.append(poly)
+                    else:
+                        danger_shapely.append(poly)
+                _zone_cache["fp"] = zone_fp
+                _zone_cache["safe"] = safe_shapely
+                _zone_cache["danger"] = danger_shapely
+                _zone_cache["items"] = items
+            else:
+                safe_shapely = _zone_cache["safe"]
+                danger_shapely = _zone_cache["danger"]
 
+            for z in db_zones:
                 payload["zones"].append({
                     "id": z.id,
                     "name": z.name,
                     "zone_type": z.zone_type,
-                    "coordinates": coords
+                    "coordinates": json.loads(z.coordinates)
                 })
 
             # 2. Сенсори та критичні об'єкти
@@ -272,14 +300,14 @@ async def c2_calculation_loop():
                 c_lat, c_lon, _ = enu_to_latlon(simulated_drone.x, simulated_drone.y, 0.0)
                 pt = Point(simulated_drone.x, simulated_drone.y)
                 crash_zone_name = "Відкрита місцевість"
-                
-                for z in db_zones:
-                    coords = json.loads(z.coordinates)
-                    enu_points = [latlon_to_enu(p[0], p[1])[:2] for p in coords]
-                    poly = Polygon(enu_points)
-                    if poly.contains(pt):
-                        crash_zone_name = f"{'🟢 ' if z.zone_type == 'safe' else '🔴 '}{z.name}"
-                        break
+
+                for poly, zname, ztype in _zone_cache["items"]:
+                    try:
+                        if poly.contains(pt):
+                            crash_zone_name = f"{'🟢 ' if ztype == 'safe' else '🔴 '}{zname}"
+                            break
+                    except Exception:
+                        continue
 
                 downed_record = DownedDroneModel(
                     drone_id=simulated_drone.id,
@@ -295,7 +323,7 @@ async def c2_calculation_loop():
                     status="CRASHED"
                 )
                 session.add(downed_record)
-                await session.commit()
+                db_dirty = True
                 simulated_drone.downed_saved = True
 
             # 4. Обробка треків та оцінка загрози
@@ -354,51 +382,74 @@ async def c2_calculation_loop():
             for node in db_nodes:
                 node_x, node_y, node_z = latlon_to_enu(node.lat, node.lon, node.alt)
                 distance = float('inf')
-                azimuth = node.current_azimuth
+                target_azimuth = node.current_azimuth
+                elevation = 0.0
+                lead_x = lead_y = lead_z = None
+                has_lead = False
 
                 if primary_target and auto_tracking_enabled:
                     sx, sy, sz, vx, vy, vz = primary_target["raw_enu"]
                     lead_x, lead_y, lead_z = InterceptionPlanner.predict_lead_point(sx, sy, sz, vx, vy, vz, lead_time_sec=2.0)
-                    azimuth, elevation, distance = calculate_azimuth_elevation(node_x, node_y, node_z, lead_x, lead_y, lead_z)
-                    
+                    has_lead = True
+                    target_azimuth, elevation, distance = calculate_azimuth_elevation(node_x, node_y, node_z, lead_x, lead_y, lead_z)
+
                     if distance <= node.max_range:
+                        prev_az = node.current_azimuth
+                        az_diff = ((target_azimuth - prev_az + 180.0) % 360.0) - 180.0
                         adaptive_beam = InterceptionPlanner.calculate_adaptive_beamwidth(distance, node.max_range)
-                        node.current_azimuth = round(azimuth, 1)
-                        node.beamwidth = adaptive_beam
-                        
+                        if abs(round(target_azimuth, 1) - prev_az) > 1e-9 or abs(adaptive_beam - node.beamwidth) > 1e-9:
+                            node.current_azimuth = round(target_azimuth, 1)
+                            node.beamwidth = adaptive_beam
+                            db_dirty = True
+
                         if distance < min_ew_dist:
                             min_ew_dist = distance
                             best_interceptor_id = node.id
                             best_interceptor_name = node.name
 
-                        PelcoDController.build_pan_tilt_command(
-                            address=node.id, 
-                            pan_speed=int(min(63, max(10, abs(vx) * 0.8))), 
-                            tilt_speed=20, 
-                            left=(azimuth < node.current_azimuth), 
+                        _pelco_cmd = PelcoDController.build_pan_tilt_command(
+                            address=node.id,
+                            pan_speed=int(min(63, max(10, abs(vx) * 0.8))),
+                            tilt_speed=20,
+                            left=(az_diff < 0.0),
                             up=(elevation > 15.0)
                         )
+                        logger.debug("pelco node=%s az=%.1f el=%.1f cmd=%s", node.id, target_azimuth, elevation, _pelco_cmd.hex())
 
                 # Бойове придушення
                 if primary_target and primary_target["status"] == "CRUISING":
+                    want_tx = False
                     if primary_target["is_ci_critical"] and node.id == best_interceptor_id and node.is_armed:
-                        node.is_transmitting = True
+                        want_tx = True
                         payload["emergency_override"] = True
                         payload["threat_info"] = f"CRITICAL ASSET DEFENSE: Захист {primary_target['nearest_ci']} ({primary_target['ci_distance']}м)"
                     elif auto_tracking_enabled and primary_target["is_safe_to_engage"] and node.id == best_interceptor_id and node.is_armed:
-                        node.is_transmitting = True
+                        want_tx = True
                         payload["threat_info"] = f"SURGICAL INTERCEPTION: {node.name} глушить ціль над безпечною зоною"
+                    if node.is_transmitting != want_tx and want_tx:
+                        node.is_transmitting = True
+                        db_dirty = True
+                    elif node.is_transmitting != want_tx and not want_tx and not node.is_armed:
+                        node.is_transmitting = False
+                        db_dirty = True
 
                 if primary_target and primary_target["status"] == "CRASHED":
-                    node.is_transmitting = False
+                    if node.is_transmitting:
+                        node.is_transmitting = False
+                        db_dirty = True
 
                 # Фіксація влучання РЕБ
                 if node.is_transmitting and primary_target and primary_target["status"] == "CRUISING":
-                    angle_diff = abs((azimuth - node.current_azimuth + 180.0) % 360.0 - 180.0)
+                    angle_diff = abs((target_azimuth - node.current_azimuth + 180.0) % 360.0 - 180.0)
                     if distance <= node.max_range and angle_diff <= (node.beamwidth / 2.0 + 4.0):
                         simulated_drone.apply_jamming(node.name)
                         payload["threat_info"] = f"⚡ ВЛУЧАННЯ РЕБ: {node.name} зірвав наведення {simulated_drone.id}!"
 
+                lead_coord = None
+                if (has_lead and lead_x is not None and lead_y is not None and lead_z is not None
+                        and primary_target and primary_target["status"] != "CRASHED"
+                        and auto_tracking_enabled and distance <= node.max_range):
+                    lead_coord = enu_to_latlon(lead_x, lead_y, lead_z)[:2]
                 payload["ew_nodes"].append({
                     "id": node.id,
                     "name": node.name,
@@ -409,7 +460,7 @@ async def c2_calculation_loop():
                     "max_range": node.max_range,
                     "is_armed": node.is_armed,
                     "is_transmitting": node.is_transmitting,
-                    "target_lead_coord": enu_to_latlon(lead_x, lead_y, lead_z)[:2] if (primary_target and primary_target["status"] != "CRASHED" and auto_tracking_enabled and distance <= node.max_range) else None
+                    "target_lead_coord": lead_coord
                 })
 
             # 6. Останні 5 збитих дронів та лічильник
@@ -431,10 +482,13 @@ async def c2_calculation_loop():
                     "status": row.status
                 })
 
-            count_res = await session.execute(select(DownedDroneModel.id))
-            payload["total_downed_count"] = len(count_res.scalars().all())
+            count_res = await session.execute(select(func.count()).select_from(DownedDroneModel))
+            payload["total_downed_count"] = int(count_res.scalar() or 0)
 
-            await session.commit()
+            if db_dirty:
+                await session.commit()
+            else:
+                await session.rollback()
 
         for conn in list(active_connections):
             try:
@@ -564,15 +618,13 @@ async def ingest_detection(item: DetectionCreate):
     global active_trackers
     x, y, z = latlon_to_enu(item.lat, item.lon, item.alt)
     target_key = "EXTERNAL-DETECTION"
-    
+
     if target_key not in active_trackers:
         tracker = DroneKalmanFilter(x, y, z)
-        tracker.state[3] = -20.0
-        tracker.state[4] = -45.0
         active_trackers[target_key] = tracker
     else:
         active_trackers[target_key].update(np.array([x, y, z]))
-        
+
     return {"status": "accepted", "target_key": target_key}
 
 @app.post("/api/v1/ew/arm")
@@ -582,22 +634,26 @@ async def control_ew_node(cmd: ArmEWCommand):
         node = res.scalars().first()
         if not node:
             return {"error": "Node not found"}
-            
+
+        gen = _burst_generations.get(cmd.node_id, 0) + 1
+        _burst_generations[cmd.node_id] = gen
         node.is_armed = cmd.arm
         if cmd.arm:
             node.is_transmitting = True
             await session.commit()
-            
-            async def burst_shutdown(nid: int, sec: int):
+
+            async def burst_shutdown(nid: int, sec: int, want_gen: int):
                 await asyncio.sleep(sec)
+                if _burst_generations.get(nid) != want_gen:
+                    return
                 async with async_session() as s:
                     q = await s.execute(select(EWNodeModel).where(EWNodeModel.id == nid))
                     n = q.scalars().first()
-                    if n:
+                    if n and _burst_generations.get(nid) == want_gen:
                         n.is_transmitting = False
                         await s.commit()
-            
-            asyncio.create_task(burst_shutdown(node.id, cmd.burst_duration))
+
+            asyncio.create_task(burst_shutdown(node.id, cmd.burst_duration, gen))
         else:
             node.is_transmitting = False
             await session.commit()
