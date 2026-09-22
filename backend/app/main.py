@@ -1,4 +1,3 @@
-# backend/app/main.py
 import asyncio
 import json
 import time
@@ -26,6 +25,7 @@ from app.schemas import (
 from app.core.geo import latlon_to_enu, enu_to_latlon, calculate_azimuth_elevation
 from app.core.kalman import DroneKalmanFilter
 from app.core.planner import InterceptionPlanner
+from app.core.risk_h3 import load_grid as risk_load_grid, safety_at_enu as risk_safety_at_enu, grid_for_frontend as risk_grid_cells
 from app.hardware.pelco import PelcoDController
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class DroneSimulation:
         self.vy = (dy / dist_to_tgt) * speed
         self.vz = 0.0
 
-        self.status = "CRUISING"  # "CRUISING" | "JAMMED" | "CRASHED"
+        self.status = "CRUISING"
         self.id = f"SHAHED-{random.randint(101, 999)}"
         self.crashed_timer = 0.0
         self.interceptor_name = "Невідомо"
@@ -81,7 +81,9 @@ class DroneSimulation:
         if self.status == "CRUISING":
             self.status = "JAMMED"
             self.interceptor_name = interceptor_name
-            self.vz = -random.uniform(6.0, 8.5)
+            self.vz = -random.uniform(22.0, 26.0)
+
+    _DRAG_TAU = 2.6
 
     def step(self, dt: float):
         if self.status == "CRASHED":
@@ -91,8 +93,11 @@ class DroneSimulation:
             return
 
         if self.status == "JAMMED":
-            self.x += (self.vx * 0.82 + settings.WIND_VECTOR_X) * dt
-            self.y += (self.vy * 0.82 + settings.WIND_VECTOR_Y) * dt
+            decay = math.exp(-dt / self._DRAG_TAU)
+            self.vx *= decay
+            self.vy *= decay
+            self.x += (self.vx + settings.WIND_VECTOR_X) * dt
+            self.y += (self.vy + settings.WIND_VECTOR_Y) * dt
             self.z += self.vz * dt
 
             if self.z <= 0.0:
@@ -124,59 +129,14 @@ auto_tracking_enabled = True
 _zone_cache: Dict = {"fp": None, "safe": [], "danger": [], "items": []}
 _burst_generations: Dict[int, int] = {}
 
-async def populate_tactical_database(session):
-    b_lat = settings.DATUM_LAT
-    b_lon = settings.DATUM_LON
-
-    ew_nodes = [
-        EWNodeModel(name="РЕБ-1 «ДЕСНА-ЗАХІД»", lat=b_lat + 0.078, lon=b_lon - 0.008, alt=35.0, max_range=5500.0, beamwidth=35.0, current_azimuth=38.0, is_armed=True),
-        EWNodeModel(name="РЕБ-2 «ДЕСНА-СХІД»", lat=b_lat + 0.085, lon=b_lon + 0.055, alt=28.0, max_range=5000.0, beamwidth=40.0, current_azimuth=345.0, is_armed=True),
-        EWNodeModel(name="РЕБ-3 «КИЇВСЬКЕ МОРЕ»", lat=b_lat + 0.160, lon=b_lon - 0.030, alt=40.0, max_range=6000.0, beamwidth=45.0, current_azimuth=15.0, is_armed=True),
-        EWNodeModel(name="РЕБ-4 «БРОВАРИ-РУБІЖ»", lat=b_lat + 0.082, lon=b_lon + 0.125, alt=22.0, max_range=4800.0, beamwidth=35.0, current_azimuth=25.0, is_armed=True)
-    ]
-    session.add_all(ew_nodes)
-
-    zones = [
-        TacticalZoneModel(name="Місто Київ: Правобережжя (Центр & Поділ)", zone_type="danger", coordinates=json.dumps([[b_lat - 0.08, b_lon - 0.12], [b_lat + 0.04, b_lon - 0.12], [b_lat + 0.04, b_lon + 0.01], [b_lat - 0.08, b_lon + 0.01]])),
-        TacticalZoneModel(name="Місто Київ: Оболонь & Пріорка", zone_type="danger", coordinates=json.dumps([[b_lat + 0.04, b_lon - 0.08], [b_lat + 0.10, b_lon - 0.08], [b_lat + 0.10, b_lon - 0.01], [b_lat + 0.04, b_lon - 0.01]])),
-        TacticalZoneModel(name="Місто Київ: Троєщина & Райдужний", zone_type="danger", coordinates=json.dumps([[b_lat + 0.03, b_lon + 0.04], [b_lat + 0.09, b_lon + 0.04], [b_lat + 0.09, b_lon + 0.10], [b_lat + 0.03, b_lon + 0.10]])),
-        TacticalZoneModel(name="Місто Київ: Дарниця & Лівобережний кластер", zone_type="danger", coordinates=json.dumps([[b_lat - 0.08, b_lon + 0.03], [b_lat + 0.03, b_lon + 0.03], [b_lat + 0.03, b_lon + 0.13], [b_lat - 0.08, b_lon + 0.13]])),
-        TacticalZoneModel(name="Місто Вишгород & ГЕС (Стратегічний вузол)", zone_type="danger", coordinates=json.dumps([[b_lat + 0.11, b_lon - 0.07], [b_lat + 0.16, b_lon - 0.07], [b_lat + 0.16, b_lon - 0.01], [b_lat + 0.11, b_lon - 0.01]])),
-        TacticalZoneModel(name="Місто Бровари & Індустріальний парк", zone_type="danger", coordinates=json.dumps([[b_lat + 0.03, b_lon + 0.13], [b_lat + 0.08, b_lon + 0.13], [b_lat + 0.08, b_lon + 0.23], [b_lat + 0.03, b_lon + 0.23]])),
-        TacticalZoneModel(name="Прибережна лінія: Нові & Старі Петрівці", zone_type="danger", coordinates=json.dumps([[b_lat + 0.16, b_lon - 0.09], [b_lat + 0.23, b_lon - 0.09], [b_lat + 0.23, b_lon - 0.04], [b_lat + 0.16, b_lon - 0.04]])),
-        TacticalZoneModel(name="Селищний масив: Хотянівка, Зазим'я, Пухівка", zone_type="danger", coordinates=json.dumps([[b_lat + 0.08, b_lon + 0.04], [b_lat + 0.14, b_lon + 0.04], [b_lat + 0.14, b_lon + 0.09], [b_lat + 0.08, b_lon + 0.09]])),
-        TacticalZoneModel(name="Енергетичний кластер ТЕЦ-6", zone_type="danger", coordinates=json.dumps([[b_lat + 0.05, b_lon + 0.07], [b_lat + 0.08, b_lon + 0.07], [b_lat + 0.08, b_lon + 0.11], [b_lat + 0.05, b_lon + 0.11]])),
-
-        TacticalZoneModel(name="KILLBOX-1: Акваторія Київського Моря", zone_type="safe", coordinates=json.dumps([[b_lat + 0.16, b_lon - 0.04], [b_lat + 0.25, b_lon - 0.04], [b_lat + 0.25, b_lon + 0.05], [b_lat + 0.16, b_lon + 0.05]])),
-        TacticalZoneModel(name="KILLBOX-2: Заплава р. Десна (Острови & Луки)", zone_type="safe", coordinates=json.dumps([[b_lat + 0.09, b_lon - 0.01], [b_lat + 0.16, b_lon - 0.01], [b_lat + 0.16, b_lon + 0.04], [b_lat + 0.09, b_lon + 0.04]])),
-        TacticalZoneModel(name="KILLBOX-3: Вишгородський лісовий масив", zone_type="safe", coordinates=json.dumps([[b_lat + 0.10, b_lon - 0.18], [b_lat + 0.24, b_lon - 0.18], [b_lat + 0.24, b_lon - 0.09], [b_lat + 0.10, b_lon - 0.09]])),
-        TacticalZoneModel(name="KILLBOX-4: Північно-Броварські торфовища & поля", zone_type="safe", coordinates=json.dumps([[b_lat + 0.08, b_lon + 0.09], [b_lat + 0.18, b_lon + 0.09], [b_lat + 0.18, b_lon + 0.23], [b_lat + 0.08, b_lon + 0.23]])),
-        TacticalZoneModel(name="KILLBOX-5: Броварський лісопарк (Буфер Київ-Бровари)", zone_type="safe", coordinates=json.dumps([[b_lat + 0.03, b_lon + 0.10], [b_lat + 0.08, b_lon + 0.10], [b_lat + 0.08, b_lon + 0.13], [b_lat + 0.03, b_lon + 0.13]])),
-        TacticalZoneModel(name="KILLBOX-6: Природний буфер Муромець-Труханів", zone_type="safe", coordinates=json.dumps([[b_lat + 0.02, b_lon + 0.01], [b_lat + 0.09, b_lon + 0.01], [b_lat + 0.09, b_lon + 0.04], [b_lat + 0.02, b_lon + 0.04]])),
-        TacticalZoneModel(name="KILLBOX-7: Калитянський агросектор (Схід)", zone_type="safe", coordinates=json.dumps([[b_lat + 0.14, b_lon + 0.04], [b_lat + 0.24, b_lon + 0.04], [b_lat + 0.24, b_lon + 0.23], [b_lat + 0.14, b_lon + 0.23]]))
-    ]
-    session.add_all(zones)
-
-    sensors = [
-        TacticalSensorModel(name="ТЕЦ-6 (Критична інфраструктура)", sensor_type="target_asset", lat=b_lat + 0.065, lon=b_lon + 0.080, detection_radius=1000.0, description="Стратегічний об'єкт генерації"),
-        TacticalSensorModel(name="Київська ГЕС (Дамба)", sensor_type="target_asset", lat=b_lat + 0.150, lon=b_lon - 0.035, detection_radius=1200.0, description="Стратегічний гідровузол"),
-        TacticalSensorModel(name="ПС 750кВ «Північна»", sensor_type="target_asset", lat=b_lat + 0.120, lon=b_lon + 0.170, detection_radius=800.0, description="Вузлова підстанція Укренерго"),
-        TacticalSensorModel(name="CAM-PTZ-01 «ВИШКА-ДЕСНА»", sensor_type="camera", lat=b_lat + 0.105, lon=b_lon + 0.015, detection_radius=3500.0, description="Тепловізор на вежі 75м"),
-        TacticalSensorModel(name="CAM-PTZ-02 «КИЇВСЬКЕ МОРЕ»", sensor_type="camera", lat=b_lat + 0.165, lon=b_lon - 0.045, detection_radius=4000.0, description="Оптичний канал акваторії"),
-        TacticalSensorModel(name="AUDIO-ARRAY-11 «ПОГРЕБИ»", sensor_type="acoustic", lat=b_lat + 0.095, lon=b_lon + 0.060, detection_radius=3800.0, description="Акустичний пеленгатор MD-550"),
-        TacticalSensorModel(name="AUDIO-ARRAY-12 «ЛІТКИ»", sensor_type="acoustic", lat=b_lat + 0.160, lon=b_lon + 0.080, detection_radius=4500.0, description="Передовий акустичний пост"),
-        TacticalSensorModel(name="МВГ «ХИЖАК-1»", sensor_type="observation_post", lat=b_lat + 0.115, lon=b_lon + 0.005, detection_radius=2200.0, description="Мобільна вогнева група")
-    ]
-    session.add_all(sensors)
-    await session.commit()
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    async with async_session() as session:
-        res = await session.execute(select(EWNodeModel))
-        if not res.scalars().first():
-            await populate_tactical_database(session)
+    try:
+        ok = risk_load_grid()
+        logger.info("risk_h3 grid loaded=%s", ok)
+    except Exception as e:
+        logger.warning("risk_h3 load failed: %s", e)
             
     bg_task = asyncio.create_task(c2_calculation_loop())
     yield
@@ -343,9 +303,40 @@ async def c2_calculation_loop():
                 lat_30, lon_30, _ = enu_to_latlon(p30_x, p30_y, sz)
                 lat_60, lon_60, _ = enu_to_latlon(p60_x, p60_y, sz)
 
-                imp_x, imp_y, t_fall = InterceptionPlanner.predict_crash_point(sx, sy, sz, vx, vy, vz)
+                imp_x, imp_y, t_fall, sig_al, sig_cr, imp_hdg = InterceptionPlanner.predict_impact_ellipse(sx, sy, sz, vx, vy, vz, tracker.P)
                 imp_lat, imp_lon, _ = enu_to_latlon(imp_x, imp_y, 0)
-                is_safe = InterceptionPlanner.is_safe_drop(imp_x, imp_y, safe_shapely, danger_shapely)
+                try:
+                    crash_safety = risk_safety_at_enu(imp_x, imp_y, imp_lat, imp_lon, safe_shapely, danger_shapely, ci_assets)
+                except Exception:
+                    crash_safety = 0.45
+                is_safe = crash_safety >= 0.60
+
+                ellipse_pts: list = []
+                try:
+                    import numpy as _np
+                    for _k in range(12):
+                        _a = 2.0 * math.pi * _k / 12.0
+                        _ex = 2.0 * sig_al * math.cos(_a)
+                        _ey = 2.0 * sig_cr * math.sin(_a)
+                        _rx = _ex * math.cos(imp_hdg) + _ey * math.sin(imp_hdg)
+                        _ry = -_ex * math.sin(imp_hdg) + _ey * math.cos(imp_hdg)
+                        _elat, _elon, _ = enu_to_latlon(imp_x + _rx, imp_y + _ry, 0)
+                        ellipse_pts.append([_elat, _elon])
+                except Exception:
+                    ellipse_pts = []
+
+                try:
+                    _samples = [(sx, sy), (p30_x, p30_y), (p60_x, p60_y), (imp_x, imp_y),
+                                ((sx + p30_x) / 2.0, (sy + p30_y) / 2.0),
+                                ((p30_x + p60_x) / 2.0, (p30_y + p60_y) / 2.0),
+                                ((p60_x + imp_x) / 2.0, (p60_y + imp_y) / 2.0)]
+                    _vals = []
+                    for _px, _py in _samples:
+                        _slat, _slon, _ = enu_to_latlon(_px, _py, 0)
+                        _vals.append(risk_safety_at_enu(_px, _py, _slat, _slon, safe_shapely, danger_shapely, ci_assets))
+                    corridor_safety = float(sum(_vals) / len(_vals))
+                except Exception:
+                    corridor_safety = crash_safety
 
                 is_ci_critical, min_dist_ci, nearest_ci_name = InterceptionPlanner.evaluate_ci_proximity(sx, sy, ci_assets, threshold_m=2500.0)
                 heading = (np.degrees(np.arctan2(vx, vy)) + 360.0) % 360.0
@@ -361,9 +352,12 @@ async def c2_calculation_loop():
                     "predicted_30s": [lat_30, lon_30] if simulated_drone.status != "CRASHED" else [t_lat, t_lon],
                     "predicted_60s": [lat_60, lon_60] if simulated_drone.status != "CRASHED" else [t_lat, t_lon],
                     "crash_point": [imp_lat, imp_lon],
+                    "crash_safety": round(crash_safety * 100.0, 1),
+                    "corridor_safety": round(corridor_safety * 100.0, 1),
+                    "impact_ellipse": ellipse_pts,
                     "is_safe_to_engage": is_safe if simulated_drone.status == "CRUISING" else False,
                     "is_ci_critical": is_ci_critical if simulated_drone.status == "CRUISING" else False,
-                    "ci_distance": round(min_dist_ci, 0),
+                    "ci_distance": round(min_dist_ci, 0) if (nearest_ci_name and math.isfinite(min_dist_ci)) else None,
                     "nearest_ci": nearest_ci_name,
                     "target_asset_name": simulated_drone.target_name,
                     "raw_enu": [sx, sy, sz, vx, vy, vz]
@@ -492,9 +486,19 @@ async def c2_calculation_loop():
 
         for conn in list(active_connections):
             try:
-                await conn.send_json(payload)
+                await conn.send_json(_sanitize(payload))
             except Exception:
                 active_connections.remove(conn)
+
+def _sanitize(o):
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _sanitize(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_sanitize(v) for v in o]
+    return o
+
 
 # --- REST API ---
 
@@ -562,8 +566,7 @@ async def reset_zones_grid():
         await session.execute(delete(EWNodeModel))
         await session.execute(delete(TacticalSensorModel))
         await session.commit()
-        await populate_tactical_database(session)
-    return {"status": "full_grid_deployed"}
+    return {"status": "grid_cleared"}
 
 @app.post("/api/v1/zones")
 async def create_tactical_zone(zone: TacticalZoneCreate):
@@ -580,6 +583,36 @@ async def delete_tactical_zone(zone_id: int):
         await session.execute(delete(TacticalZoneModel).where(TacticalZoneModel.id == zone_id))
         await session.commit()
         return {"status": "deleted"}
+
+@app.get("/api/v1/risk/at")
+async def risk_at(lat: float, lon: float):
+    from shapely.geometry import Polygon as Poly
+    async with async_session() as session:
+        qz = await session.execute(select(TacticalZoneModel))
+        dz = qz.scalars().all()
+        qs = await session.execute(select(TacticalSensorModel))
+        ci = []
+        for s in qs.scalars().all():
+            if s.sensor_type == "target_asset":
+                cx, cy, _ = latlon_to_enu(s.lat, s.lon, s.alt)
+                ci.append({"name": s.name, "x": cx, "y": cy})
+        safe, dang = [], []
+        for z in dz:
+            try:
+                pts = [latlon_to_enu(p[0], p[1])[:2] for p in json.loads(z.coordinates)]
+                poly = Poly(pts)
+                if not poly.is_valid:
+                    poly = poly.buffer(0)
+                (safe if z.zone_type == "safe" else dang).append(poly)
+            except Exception:
+                continue
+    x, y, _ = latlon_to_enu(lat, lon, 0.0)
+    s = risk_safety_at_enu(x, y, lat, lon, safe, dang, ci)
+    return {"lat": lat, "lon": lon, "safety": round(s * 100.0, 1)}
+
+@app.get("/api/v1/risk/grid")
+async def risk_grid(limit: int = 2500):
+    return {"cells": risk_grid_cells(limit)}
 
 @app.post("/api/v1/sensors")
 async def create_tactical_sensor(sensor: TacticalSensorCreate):

@@ -10,10 +10,13 @@ export interface Track {
   predicted_30s: [number, number];
   predicted_60s: [number, number];
   crash_point: [number, number];
+  crash_safety?: number;
+  corridor_safety?: number;
+  impact_ellipse?: [number, number][];
   is_safe_to_engage: boolean;
   is_ci_critical?: boolean;
-  ci_distance?: number;
-  nearest_ci?: string;
+  ci_distance?: number | null;
+  nearest_ci?: string | null;
   target_asset_name?: string;
 }
 

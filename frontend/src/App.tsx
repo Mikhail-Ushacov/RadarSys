@@ -48,7 +48,12 @@ export const App: React.FC = () => {
 
       ws.onmessage = (event) => {
         retry = 0;
-        const data: TacticalUpdate = JSON.parse(event.data);
+        let data: TacticalUpdate;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          return;
+        }
       setTracks(data.tracks || []);
       if (data.simulation_active !== undefined) setSimulationActive(data.simulation_active);
       if (data.auto_tracking !== undefined) setAutoTracking(data.auto_tracking);

@@ -57,6 +57,7 @@ htmlcov/
 *.db-wal
 *.db-shm
 backend/ew_tactical.db
+backend/data/
 
 # ==========================================
 # 4. Node.js / Vite / React (Frontend)

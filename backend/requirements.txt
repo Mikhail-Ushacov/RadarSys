@@ -7,3 +7,5 @@ pydantic>=2.6.4
 pydantic-settings>=2.2.1
 numpy>=1.26.4
 shapely>=2.0.3
+h3>=4.1.0
+osmium>=3.8.0

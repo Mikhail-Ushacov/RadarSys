@@ -1,5 +1,5 @@
 // frontend/src/components/TacticalMap.tsx
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   MapContainer, TileLayer, Marker, Polyline, 
   Polygon, Circle, Popup, useMapEvents 
@@ -8,6 +8,14 @@ import L from 'leaflet';
 import { Track, EWNode, TacticalZone, TacticalSensor } from '../types';
 import { Navigation, Move, Edit3, Trash2 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
+
+interface RiskCell { cell: string; safety: number; risk: number; b: number; r: number; poi?: number; green?: number; why: string; boundary: [number, number][]; }
+
+function safetyColor(s: number): string {
+  if (s >= 60) return '#10b981';
+  if (s >= 40) return '#f59e0b';
+  return '#ef4444';
+}
 
 function getBeamSector(lat: number, lon: number, azimuth: number, beamwidth: number, rangeMeters: number): [number, number][] {
   const points: [number, number][] = [[lat, lon]];
@@ -363,6 +371,17 @@ export const TacticalMap: React.FC<Props> = ({
 }) => {
   const defaultCenter: [number, number] = [50.4501, 30.5234];
   const [cursorCoords, setCursorCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [riskCells, setRiskCells] = useState<RiskCell[]>([]);
+  const [showRisk, setShowRisk] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const url = `http://${window.location.hostname}:8000/api/v1/risk/grid?limit=8000`;
+    fetch(url).then((r) => r.json()).then((d) => {
+      if (!cancelled && d && Array.isArray(d.cells)) setRiskCells(d.cells);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const datumLat = 50.4501;
   const datumLon = 30.5234;
@@ -378,6 +397,27 @@ export const TacticalMap: React.FC<Props> = ({
         />
 
         <MapEventsController onMapClick={onMapClick} onMouseMove={(lat, lon) => setCursorCoords({ lat, lon })} />
+
+        {showRisk && riskCells.map((c) => (
+          <Polygon
+            key={`risk-${c.cell}`}
+            positions={c.boundary}
+            pathOptions={{
+              stroke: false,
+              fillColor: safetyColor(c.safety),
+              fillOpacity: 0.45,
+            }}
+          >
+            <Popup>
+              <div className="popup-tactical">
+                <strong>Комірка · безпека <span style={{ color: safetyColor(c.safety) }}>{c.safety.toFixed(1)}%</span></strong>
+                <p style={{ margin: '4px 0' }}>{c.why}</p>
+                <p style={{ margin: '3px 0', color: '#475569' }}>OSM: {c.b} буд. · {c.r} дор.{c.poi !== undefined ? ` · ${c.poi} POI` : ''} | Ризик {c.risk.toFixed(0)}%</p>
+                <p style={{ margin: '3px 0', color: '#94a3b8', fontSize: '11px' }}>Рішення: зони 70 / сітка 30, поріг 60%</p>
+              </div>
+            </Popup>
+          </Polygon>
+        ))}
 
         {zones.map((zone) => (
           <ZoneItem key={`zone-${zone.id}`} zone={zone} onDragStart={onDragStart} onCommitMoveZone={onCommitMoveZone} onEditObject={onEditObject} onDeleteZone={onDeleteZone} />
@@ -402,6 +442,8 @@ export const TacticalMap: React.FC<Props> = ({
                   <p style={{ margin: '3px 0' }}>Висота: <b>{target.alt.toFixed(0)} м</b></p>
                   <p style={{ margin: '3px 0' }}>Швидкість: <b>{(target.speed * 3.6).toFixed(0)} км/год</b></p>
                   <p style={{ margin: '3px 0' }}>Курс: <b>{target.heading.toFixed(0)}°</b></p>
+                  {target.crash_safety !== undefined && <p style={{ margin: '3px 0' }}>Безпека точки падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>}
+                  {target.corridor_safety !== undefined && <p style={{ margin: '3px 0' }}>Безпека коридору: <b style={{ color: safetyColor(target.corridor_safety) }}>{target.corridor_safety.toFixed(1)}%</b></p>}
                   {target.nearest_ci && <p style={{ margin: '3px 0' }}>До {target.nearest_ci}: <b>{target.ci_distance} м</b></p>}
                 </div>
               </Popup>
@@ -410,6 +452,17 @@ export const TacticalMap: React.FC<Props> = ({
             {target.status !== 'CRASHED' && (
               <>
                 <Polyline positions={[[target.lat, target.lon], target.predicted_30s, target.predicted_60s]} pathOptions={{ color: target.status === 'JAMMED' ? '#f59e0b' : '#fbbf24', dashArray: '4, 8', weight: 2 }} />
+                {target.impact_ellipse && target.impact_ellipse.length >= 3 ? (
+                  <Polygon
+                    positions={target.impact_ellipse}
+                    pathOptions={{
+                      color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                      fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                      fillOpacity: 0.35,
+                      weight: target.is_ci_critical ? 3 : 1.5
+                    }}
+                  />
+                ) : (
                 <Circle
                   center={target.crash_point}
                   radius={220}
@@ -420,11 +473,26 @@ export const TacticalMap: React.FC<Props> = ({
                     weight: target.is_ci_critical ? 3 : 1.5
                   }}
                 />
+                )}
               </>
             )}
           </React.Fragment>
         ))}
       </MapContainer>
+
+      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 500, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button onClick={() => setShowRisk((v) => !v)} style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>
+          {showRisk ? 'Сховати safety-шар' : 'Показати safety-шар'} ({riskCells.length})
+        </button>
+      </div>
+
+      <div style={{ position: 'absolute', bottom: 20, left: 12, zIndex: 500, background: 'rgba(15,23,42,0.9)', border: '1px solid #334155', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#e2e8f0' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Безпека</div>
+        <div><span style={{ display: 'inline-block', width: 10, height: 10, background: '#10b981', marginRight: 6 }} />≥60% — ураження дозволено</div>
+        <div><span style={{ display: 'inline-block', width: 10, height: 10, background: '#f59e0b', marginRight: 6 }} />40–60% — утриматись</div>
+        <div><span style={{ display: 'inline-block', width: 10, height: 10, background: '#ef4444', marginRight: 6 }} />&lt;40% — заборонено</div>
+        <div style={{ color: '#94a3b8', marginTop: 4 }}>Клік по комірці — деталі</div>
+      </div>
 
       <div className="cursor-coordinate-hud">
         <div className="hud-row">

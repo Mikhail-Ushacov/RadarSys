@@ -1,4 +1,3 @@
-# backend/app/core/planner.py
 import math
 from shapely.geometry import Point, Polygon
 from app.config import settings
@@ -29,19 +28,54 @@ class InterceptionPlanner:
         - Близька дистанція (<1500м): широкий промінь до 45-55° для утримання високої кутової швидкості.
         """
         norm_dist = max(0.1, min(1.0, distance / max_range))
-        # Лінійна інтерполяція від 50° на нульовій дистанції до 15° на граничній
         beamwidth = 50.0 - norm_dist * 35.0
         return round(max(14.0, min(60.0, beamwidth)), 1)
 
     @staticmethod
     def predict_crash_point(x: float, y: float, z: float, vx: float, vy: float, vz: float):
+        imp_x, imp_y, t_fall, _, _, _ = InterceptionPlanner.predict_impact_ellipse(x, y, z, vx, vy, vz)
+        return imp_x, imp_y, t_fall
+
+    _M = 50.0
+    _CD = 1.0
+    _A = 1.2
+    _RHO = 1.225
+    _G = 9.81
+
+    @staticmethod
+    def predict_impact_ellipse(x: float, y: float, z: float, vx: float, vy: float, vz: float, P: object = None):
+        g = InterceptionPlanner._G
+        v_term = math.sqrt(2.0 * InterceptionPlanner._M * g / (InterceptionPlanner._RHO * InterceptionPlanner._CD * InterceptionPlanner._A))
+        tau = v_term / g
         current_alt = max(z, 10.0)
-        v_descent = 4.0 if vz >= 0 else abs(vz)
-        fall_time = current_alt / v_descent
-        
-        impact_x = x + (vx + settings.WIND_VECTOR_X) * fall_time
-        impact_y = y + (vy + settings.WIND_VECTOR_Y) * fall_time
-        return impact_x, impact_y, fall_time
+        t_fall = tau * math.acosh(math.exp(g * current_alt / v_term ** 2))
+        drag = tau * (1.0 - math.exp(-t_fall / tau))
+        imp_x = x + vx * drag + settings.WIND_VECTOR_X * t_fall
+        imp_y = y + vy * drag + settings.WIND_VECTOR_Y * t_fall
+        speed = math.sqrt(vx ** 2 + vy ** 2)
+        wind_mag = math.sqrt(settings.WIND_VECTOR_X ** 2 + settings.WIND_VECTOR_Y ** 2)
+        if P is not None:
+            try:
+                import numpy as _np
+                cov_xy = _np.array(P[0:2, 0:2], dtype=float)
+                cov_v = _np.array(P[3:5, 3:5], dtype=float) if P.shape[0] >= 5 else _np.eye(2)*10
+                sigma = cov_xy + (drag**2) * cov_v + _np.eye(2) * (8.0 + 0.05*wind_mag*t_fall)**2
+                hdg = math.atan2(vx, vy)
+                c, s = math.cos(hdg), math.sin(hdg)
+                R = _np.array([[c, s], [-s, c]])
+                rot = R @ sigma @ R.T
+                sigma_along = float(min(math.sqrt(max(float(rot[0,0]), 1.0)), 1500.0))
+                sigma_cross = float(min(math.sqrt(max(float(rot[1,1]), 1.0)), 1500.0))
+                sigma_along = max(sigma_along, min(60.0 + 0.04*speed*t_fall, 1500.0))
+                sigma_cross = max(sigma_cross, min(40.0 + 0.03*speed*t_fall, 1500.0))
+                heading = hdg
+                return imp_x, imp_y, t_fall, sigma_along, sigma_cross, heading
+            except Exception:
+                pass
+        sigma_along = min(60.0 + 0.08 * speed * t_fall, 1500.0)
+        sigma_cross = min(40.0 + 0.05 * speed * t_fall + 0.1 * wind_mag * t_fall, 1500.0)
+        heading = math.atan2(vx, vy)
+        return imp_x, imp_y, t_fall, sigma_along, sigma_cross, heading
 
     @staticmethod
     def is_safe_drop(impact_x: float, impact_y: float, safe_zones: list[Polygon], danger_zones: list[Polygon]) -> bool:
