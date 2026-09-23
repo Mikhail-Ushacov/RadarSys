@@ -33,10 +33,12 @@ export interface EWNode {
   target_lead_coord?: [number, number] | null;
 }
 
+export type ZoneType = 'safe' | 'caution' | 'danger';
+
 export interface TacticalZone {
   id: number;
   name: string;
-  zone_type: 'safe' | 'danger';
+  zone_type: ZoneType;
   coordinates: [number, number][];
 }
 

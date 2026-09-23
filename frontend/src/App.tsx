@@ -22,6 +22,8 @@ export const App: React.FC = () => {
   const [threatInfo, setThreatInfo] = useState<string | null>(null);
   
   const [allowMapClickToAdd, setAllowMapClickToAdd] = useState<boolean>(false);
+  const [isDrawingZone, setIsDrawingZone] = useState<boolean>(false);
+  const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingObject, setEditingObject] = useState<EditableObject | null>(null);
@@ -54,48 +56,48 @@ export const App: React.FC = () => {
         } catch {
           return;
         }
-      setTracks(data.tracks || []);
-      if (data.simulation_active !== undefined) setSimulationActive(data.simulation_active);
-      if (data.auto_tracking !== undefined) setAutoTracking(data.auto_tracking);
-      if (data.emergency_override !== undefined) setEmergencyOverride(data.emergency_override);
-      setThreatInfo(data.threat_info || null);
-      if (data.recent_downed) setRecentDowned(data.recent_downed);
-      if (data.total_downed_count !== undefined) setTotalDownedCount(data.total_downed_count);
+        setTracks(data.tracks || []);
+        if (data.simulation_active !== undefined) setSimulationActive(data.simulation_active);
+        if (data.auto_tracking !== undefined) setAutoTracking(data.auto_tracking);
+        if (data.emergency_override !== undefined) setEmergencyOverride(data.emergency_override);
+        setThreatInfo(data.threat_info || null);
+        if (data.recent_downed) setRecentDowned(data.recent_downed);
+        if (data.total_downed_count !== undefined) setTotalDownedCount(data.total_downed_count);
 
-      const now = Date.now();
+        const now = Date.now();
 
-      setEwNodes((prev) => {
-        return (data.ew_nodes || []).map((node) => {
-          const key = `ew-${node.id}`;
-          if (draggingIdRef.current === key || (recentlyMovedRef.current.get(key) || 0) > now) {
-            const current = prev.find((n) => n.id === node.id);
-            return current ? { ...node, lat: current.lat, lon: current.lon } : node;
-          }
-          return node;
+        setEwNodes((prev) => {
+          return (data.ew_nodes || []).map((node) => {
+            const key = `ew-${node.id}`;
+            if (draggingIdRef.current === key || (recentlyMovedRef.current.get(key) || 0) > now) {
+              const current = prev.find((n) => n.id === node.id);
+              return current ? { ...node, lat: current.lat, lon: current.lon } : node;
+            }
+            return node;
+          });
         });
-      });
 
-      setSensors((prev) => {
-        return (data.sensors || []).map((sensor) => {
-          const key = `sensor-${sensor.id}`;
-          if (draggingIdRef.current === key || (recentlyMovedRef.current.get(key) || 0) > now) {
-            const current = prev.find((s) => s.id === sensor.id);
-            return current ? { ...sensor, lat: current.lat, lon: current.lon } : sensor;
-          }
-          return sensor;
+        setSensors((prev) => {
+          return (data.sensors || []).map((sensor) => {
+            const key = `sensor-${sensor.id}`;
+            if (draggingIdRef.current === key || (recentlyMovedRef.current.get(key) || 0) > now) {
+              const current = prev.find((s) => s.id === sensor.id);
+              return current ? { ...sensor, lat: current.lat, lon: current.lon } : sensor;
+            }
+            return sensor;
+          });
         });
-      });
 
-      setZones((prev) => {
-        return (data.zones || []).map((zone) => {
-          const key = `zone-${zone.id}`;
-          if (draggingIdRef.current === key || (recentlyMovedRef.current.get(key) || 0) > now) {
-            const current = prev.find((z) => z.id === zone.id);
-            return current ? { ...zone, coordinates: current.coordinates } : zone;
-          }
-          return zone;
+        setZones((prev) => {
+          return (data.zones || []).map((zone) => {
+            const key = `zone-${zone.id}`;
+            if (draggingIdRef.current === key || (recentlyMovedRef.current.get(key) || 0) > now) {
+              const current = prev.find((z) => z.id === zone.id);
+              return current ? { ...zone, coordinates: current.coordinates } : zone;
+            }
+            return zone;
+          });
         });
-      });
       };
 
       ws.onclose = () => {
@@ -133,6 +135,18 @@ export const App: React.FC = () => {
     await fetch(`${backendUrl}/api/v1/zones/reset_full_grid`, { method: 'POST' });
   };
 
+  const handleGenerateFromH3 = async () => {
+    try {
+      const res = await fetch(`${backendUrl}/api/v1/zones/generate_from_h3`, { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 'success') {
+        alert(`Успішно сформовано ${data.count} об'єднаних районів із сітки H3 (Червоні, Помаранчеві, Зелені)!`);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleTriggerBurst = async (nodeId: number) => {
     await fetch(`${backendUrl}/api/v1/ew/arm`, {
       method: 'POST',
@@ -142,12 +156,41 @@ export const App: React.FC = () => {
   };
 
   const handleMapClick = (lat: number, lon: number) => {
+    if (isDrawingZone) return;
     if (!allowMapClickToAdd) return;
     if (Date.now() - lastDragTimeRef.current < 450) return;
 
     setEditingObject(null);
     setSelectedCoords({ lat, lon });
     setIsModalOpen(true);
+  };
+
+  const handleAddDrawingPoint = (lat: number, lon: number) => {
+    setDrawingPoints((prev) => [...prev, [lat, lon]]);
+  };
+
+  const handleStartDrawingZone = () => {
+    setIsDrawingZone(true);
+    setDrawingPoints([]);
+  };
+
+  const handleFinishDrawingZone = () => {
+    if (drawingPoints.length < 3) return;
+    const centerLat = drawingPoints.reduce((acc, p) => acc + p[0], 0) / drawingPoints.length;
+    const centerLon = drawingPoints.reduce((acc, p) => acc + p[1], 0) / drawingPoints.length;
+    setSelectedCoords({ lat: centerLat, lon: centerLon });
+    setEditingObject(null);
+    setIsModalOpen(true);
+    setIsDrawingZone(false);
+  };
+
+  const handleCancelDrawingZone = () => {
+    setIsDrawingZone(false);
+    setDrawingPoints([]);
+  };
+
+  const handleUndoDrawingPoint = () => {
+    setDrawingPoints((prev) => prev.slice(0, -1));
   };
 
   const handleOpenAddModal = () => {
@@ -223,12 +266,12 @@ export const App: React.FC = () => {
 
   return (
     <div className="app-root-layout">
-      {/* Верхнє навігаційне меню сторінок */}
+      {/* Верхнє навігаційне меню */}
       <header className="top-navbar">
         <div className="navbar-left">
           <span className="navbar-logo">SURGICAL EW C2</span>
           <span className="navbar-divider">|</span>
-          <span className="navbar-subtitle">СИСТЕМА ХІРУРГІЧНОГО ПРИДУШЕННЯ БПЛА</span>
+          <span className="navbar-subtitle">СИСТЕМА ХІРУРГІЧНОГО ПРИДУШЕННЯ БПЛА ТА УПРАВЛІННЯ ЗОНАМИ</span>
         </div>
         <div className="navbar-tabs">
           <button 
@@ -260,11 +303,14 @@ export const App: React.FC = () => {
             recentDowned={recentDowned}
             totalDownedCount={totalDownedCount}
             allowMapClickToAdd={allowMapClickToAdd}
+            isDrawingZone={isDrawingZone}
             simulationActive={simulationActive}
             autoTracking={autoTracking}
             emergencyOverride={emergencyOverride}
             threatInfo={threatInfo}
             onToggleMapClickToAdd={() => setAllowMapClickToAdd((prev) => !prev)}
+            onStartDrawingZone={handleStartDrawingZone}
+            onGenerateFromH3={handleGenerateFromH3}
             onToggleSimulation={handleToggleSimulation}
             onToggleAutoTracking={handleToggleAutoTracking}
             onResetSimulation={handleResetSimulation}
@@ -280,6 +326,12 @@ export const App: React.FC = () => {
               ewNodes={ewNodes} 
               zones={zones}
               sensors={sensors}
+              isDrawingZone={isDrawingZone}
+              drawingPoints={drawingPoints}
+              onAddDrawingPoint={handleAddDrawingPoint}
+              onFinishDrawingZone={handleFinishDrawingZone}
+              onCancelDrawingZone={handleCancelDrawingZone}
+              onUndoDrawingPoint={handleUndoDrawingPoint}
               onMapClick={handleMapClick}
               onDeleteZone={handleDeleteZone}
               onDeleteSensor={handleDeleteSensor}
@@ -296,14 +348,17 @@ export const App: React.FC = () => {
             <TacticalObjectModal
               initialLat={selectedCoords.lat}
               initialLon={selectedCoords.lon}
+              initialCoordinates={drawingPoints.length >= 3 ? drawingPoints : undefined}
               editingObject={editingObject}
               onClose={() => {
                 setIsModalOpen(false);
                 setEditingObject(null);
+                setDrawingPoints([]);
               }}
               onSuccess={() => {
                 setIsModalOpen(false);
                 setEditingObject(null);
+                setDrawingPoints([]);
               }}
             />
           )}

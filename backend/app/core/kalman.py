@@ -1,3 +1,5 @@
+from __future__ import annotations
+from typing import Optional, Tuple
 import numpy as np
 
 class DroneKalmanFilter:
@@ -40,7 +42,7 @@ class DroneKalmanFilter:
         self.state = F @ self.state
         self.P = F @ self.P @ F.T + Q
 
-    def update(self, z_meas: np.ndarray, R: float | None = None):
+    def update(self, z_meas: np.ndarray, R: Optional[float] = None):
         if R is not None:
             Rm = np.eye(3) * R
         else:
@@ -51,7 +53,7 @@ class DroneKalmanFilter:
         self.state = self.state + K @ y
         self.P = (np.eye(9) - K @ self.H) @ self.P
 
-    def extrapolate(self, seconds: float) -> tuple[float, float, float]:
+    def extrapolate(self, seconds: float) -> Tuple[float, float, float]:
         x = self.state[0] + self.state[3]*seconds + 0.5*self.state[6]*seconds**2
         y = self.state[1] + self.state[4]*seconds + 0.5*self.state[7]*seconds**2
         z = self.state[2] + self.state[5]*seconds + 0.5*self.state[8]*seconds**2
@@ -60,5 +62,5 @@ class DroneKalmanFilter:
     def pos_cov2d(self) -> np.ndarray:
         return self.P[0:2, 0:2].copy()
 
-    def vel(self) -> tuple[float,float,float]:
+    def vel(self) -> Tuple[float, float, float]:
         return float(self.state[3]), float(self.state[4]), float(self.state[5])

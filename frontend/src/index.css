@@ -106,7 +106,7 @@ body, html, #root {
 }
 
 .sidebar {
-  width: 380px;
+  width: 390px;
   background: #111827;
   border-right: 1px solid #1f2937;
   display: flex;
@@ -157,10 +157,11 @@ body, html, #root {
 .badge {
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: bold;
 }
 .badge-safe { background: #065f46; color: #34d399; }
+.badge-caution { background: #78350f; color: #fde047; }
 .badge-danger { background: #7f1d1d; color: #f87171; }
 .badge-armed { background: #d97706; color: #fef3c7; }
 .badge-jamming { background: #dc2626; color: #ffffff; animation: blink 1s infinite; }
@@ -169,7 +170,126 @@ body, html, #root {
   50% { opacity: 0.5; }
 }
 
-/* Віджет 5 останніх збитих дронів у сайдбарі */
+.btn-zone-action {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-zone-action:hover {
+  background: #1e293b;
+  border-color: #38bdf8;
+}
+.btn-zone-action.active {
+  background: #064e3b;
+  border-color: #10b981;
+  color: #a7f3d0;
+}
+
+/* Панель малювання зони вільної форми над картою */
+.drawing-toolbar-overlay {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.95);
+  border: 2px solid #38bdf8;
+  border-radius: 8px;
+  padding: 10px 16px;
+  z-index: 1000;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawing-toolbar-title {
+  color: #38bdf8;
+  font-weight: bold;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #38bdf8;
+  border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.drawing-toolbar-desc {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.drawing-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.drawing-points-count {
+  font-size: 0.75rem;
+  color: #f8fafc;
+  background: #1e293b;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.btn-draw-tool {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.btn-draw-tool:hover:not(:disabled) {
+  background: #334155;
+}
+.btn-draw-tool.finish {
+  background: #059669;
+  border-color: #10b981;
+  color: #fff;
+}
+.btn-draw-tool.finish:hover:not(:disabled) {
+  background: #047857;
+}
+.btn-draw-tool.cancel {
+  background: #7f1d1d;
+  border-color: #ef4444;
+}
+.btn-draw-tool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Віджет 5 останніх збитих дронів */
 .mini-downed-item {
   background: #1a2234;
   border-left: 3px solid #ef4444;
@@ -200,7 +320,7 @@ body, html, #root {
   border-style: solid;
 }
 
-/* Окрема сторінка історії (History Page) */
+/* Сторінка історії */
 .history-page-container {
   flex: 1;
   background: #0b0f19;
@@ -395,7 +515,7 @@ body, html, #root {
   color: #fff;
 }
 
-/* Модальне вікно створення тактичних об'єктів */
+/* Модальне вікно */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -414,7 +534,7 @@ body, html, #root {
   background: #111827;
   border: 1px solid #374151;
   border-radius: 8px;
-  width: 520px;
+  width: 540px;
   max-width: 90vw;
   padding: 1.5rem;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
@@ -430,7 +550,7 @@ body, html, #root {
 }
 .modal-header h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.95rem;
   color: #38bdf8;
   letter-spacing: 0.05em;
 }
@@ -470,6 +590,10 @@ body, html, #root {
 .cat-btn.active.danger {
   border-color: #ef4444;
   background: #450a0a;
+}
+.cat-btn.active.caution {
+  border-color: #f59e0b;
+  background: #451a03;
 }
 .cat-btn.active.safe {
   border-color: #10b981;
@@ -570,22 +694,18 @@ body, html, #root {
   gap: 8px;
   font-size: 0.75rem;
 }
-
 .hud-row:not(:last-child) {
   margin-bottom: 4px;
 }
-
 .hud-title {
   color: #9ca3af;
   font-weight: 600;
   letter-spacing: 0.05em;
 }
-
 .hud-value {
   color: #f8fafc;
   font-weight: bold;
 }
-
 .hud-dimmed {
   color: #64748b;
   font-style: italic;
@@ -611,12 +731,10 @@ body, html, #root {
   cursor: pointer;
   transition: all 0.2s ease;
 }
-
 .btn-toggle-switch.enabled {
   background: #0284c7;
   color: #ffffff;
 }
-
 .btn-toggle-switch.disabled {
   background: #334155;
   color: #94a3b8;

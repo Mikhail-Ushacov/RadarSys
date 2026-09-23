@@ -3,8 +3,8 @@ import React from 'react';
 import { Track, EWNode, TacticalSensor, TacticalZone, DownedDroneDetailed } from '../types';
 import { 
   Crosshair, Zap, Plus, Camera, Mic, 
-  Eye, Users, Target, ShieldAlert, ShieldCheck, Edit3, 
-  MousePointerClick, Play, Square, RotateCcw, Grid, Compass, AlertOctagon, History, ArrowRight
+  Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3, 
+  MousePointerClick, Play, Square, RotateCcw, Grid, Compass, AlertOctagon, History, ArrowRight, PenTool, Sparkles
 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 
@@ -16,11 +16,14 @@ interface Props {
   recentDowned: DownedDroneDetailed[];
   totalDownedCount: number;
   allowMapClickToAdd: boolean;
+  isDrawingZone: boolean;
   simulationActive: boolean;
   autoTracking: boolean;
   emergencyOverride: boolean;
   threatInfo: string | null;
   onToggleMapClickToAdd: () => void;
+  onStartDrawingZone: () => void;
+  onGenerateFromH3: () => void;
   onToggleSimulation: () => void;
   onToggleAutoTracking: () => void;
   onResetSimulation: () => void;
@@ -33,8 +36,8 @@ interface Props {
 
 export const TargetHUD: React.FC<Props> = ({ 
   tracks, ewNodes, sensors, zones, recentDowned, totalDownedCount,
-  allowMapClickToAdd, simulationActive, autoTracking, emergencyOverride, threatInfo,
-  onToggleMapClickToAdd, onToggleSimulation, onToggleAutoTracking, onResetSimulation, onResetGrid,
+  allowMapClickToAdd, isDrawingZone, simulationActive, autoTracking, emergencyOverride, threatInfo,
+  onToggleMapClickToAdd, onStartDrawingZone, onGenerateFromH3, onToggleSimulation, onToggleAutoTracking, onResetSimulation, onResetGrid,
   onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage
 }) => {
   return (
@@ -70,6 +73,7 @@ export const TargetHUD: React.FC<Props> = ({
         </div>
       )}
 
+      {/* ПАНЕЛЬ УПРАВЛІННЯ РЕЖИМАМИ ТА ГЕНЕРАЦІЄЮ ЗОН */}
       <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '8px', marginTop: '0.6rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#94a3b8' }}>РЕЖИМ СУПРОВОДУ:</span>
@@ -98,8 +102,26 @@ export const TargetHUD: React.FC<Props> = ({
           <button onClick={onResetSimulation} title="Згенерувати новий випадковий спавн дрона" style={{ padding: '5px 8px', background: '#374151', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}>
             <RotateCcw size={14} />
           </button>
-          <button onClick={onResetGrid} title="Скинути сітку зон" style={{ padding: '5px 8px', background: '#0369a1', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}>
+          <button onClick={onResetGrid} title="Скинути сітку зон" style={{ padding: '5px 8px', background: '#475569', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}>
             <Grid size={14} />
+          </button>
+        </div>
+
+        {/* ШВИДКІ ІНСТРУМЕНТИ ЗОН: ГЕНЕРАЦІЯ З H3 ТА МАЛЮВАННЯ */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' }}>
+          <button 
+            onClick={onGenerateFromH3} 
+            className="btn-zone-action"
+            title="Перетворити гексагони з data/ у об'єднані полігональні райони"
+          >
+            <Sparkles size={12} color="#38bdf8" /> Згенерувати з H3
+          </button>
+          <button 
+            onClick={onStartDrawingZone} 
+            className={`btn-zone-action ${isDrawingZone ? 'active' : ''}`}
+            title="Увімкнути режим малювання власної зони вільної форми кліком"
+          >
+            <PenTool size={12} color="#34d399" /> {isDrawingZone ? 'Малювання...' : 'Вільна форма'}
           </button>
         </div>
       </div>
@@ -112,7 +134,7 @@ export const TargetHUD: React.FC<Props> = ({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
           <MousePointerClick size={15} color={allowMapClickToAdd ? '#38bdf8' : '#64748b'} />
-          <span>Клік на карті (ЛКМ):</span>
+          <span>Клік на карті (додати точку):</span>
         </div>
         <button 
           type="button"
@@ -263,7 +285,6 @@ export const TargetHUD: React.FC<Props> = ({
               {s.sensor_type === 'camera' && <Camera size={16} color="#34d399" />}
               {s.sensor_type === 'acoustic' && <Mic size={16} color="#fbbf24" />}
               {s.sensor_type === 'observation_post' && <Eye size={16} color="#a78bfa" />}
-              {s.sensor_type === 'witness_report' && <Users size={16} color="#f472b6" />}
               {s.sensor_type === 'target_asset' && <Target size={16} color="#f87171" />}
               <div style={{ fontSize: '0.75rem', flex: 1 }}>
                 <div style={{ fontWeight: 'bold', color: s.sensor_type === 'target_asset' ? '#fca5a5' : '#e2e8f0' }}>{s.name}</div>
@@ -276,23 +297,28 @@ export const TargetHUD: React.FC<Props> = ({
           ))}
         </div>
 
-        {/* ЗОНИ */}
+        {/* ТАКТИЧНІ ЗОНИ (3 ТИПИ: SAFE, CAUTION, DANGER) */}
         <div>
           <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
-            Тактичні зони ({zones.length})
+            Тактичні райони ({zones.length})
           </h4>
           {zones.map((z) => (
             <div key={z.id} style={{ background: '#111827', border: '1px solid #1f2937', padding: '0.4rem 0.6rem', borderRadius: '6px', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {z.zone_type === 'safe' ? <ShieldCheck size={14} color="#10b981" /> : <ShieldAlert size={14} color="#ef4444" />}
+                {z.zone_type === 'safe' && <ShieldCheck size={14} color="#10b981" />}
+                {z.zone_type === 'caution' && <AlertTriangle size={14} color="#f59e0b" />}
+                {z.zone_type === 'danger' && <ShieldAlert size={14} color="#ef4444" />}
                 {z.name}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <button onClick={() => onEditObject({ type: 'zone', data: z })} className="btn-icon-hud" title="Редагувати зону">
                   <Edit3 size={13} />
                 </button>
-                <span className={`badge ${z.zone_type === 'safe' ? 'badge-safe' : 'badge-danger'}`}>
-                  {z.zone_type === 'safe' ? 'SAFE' : 'DANGER'}
+                <span className={`badge ${
+                  z.zone_type === 'safe' ? 'badge-safe' :
+                  z.zone_type === 'caution' ? 'badge-caution' : 'badge-danger'
+                }`}>
+                  {z.zone_type === 'safe' ? 'KILLBOX' : z.zone_type === 'caution' ? 'CAUTION' : 'NO-DROP'}
                 </span>
               </div>
             </div>

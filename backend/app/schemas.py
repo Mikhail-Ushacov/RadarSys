@@ -1,6 +1,6 @@
 # backend/app/schemas.py
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, field_validator
+from typing import List, Optional, Literal
 
 class DetectionCreate(BaseModel):
     sensor_id: str
@@ -30,12 +30,22 @@ class EWNodeUpdate(BaseModel):
 
 class TacticalZoneCreate(BaseModel):
     name: str
-    zone_type: str
+    zone_type: Literal["danger", "caution", "safe"]
     coordinates: List[List[float]]
+
+    @field_validator("coordinates")
+    @classmethod
+    def validate_coordinates(cls, v):
+        if len(v) < 3:
+            raise ValueError("Зона повинна містити щонайменше 3 координатні точки")
+        for pt in v:
+            if len(pt) < 2:
+                raise ValueError("Кожна точка повинна мати [lat, lon]")
+        return v
 
 class TacticalZoneUpdate(BaseModel):
     name: Optional[str] = None
-    zone_type: Optional[str] = None
+    zone_type: Optional[Literal["danger", "caution", "safe"]] = None
     coordinates: Optional[List[List[float]]] = None
 
 class TacticalSensorCreate(BaseModel):

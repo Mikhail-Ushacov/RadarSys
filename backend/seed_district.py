@@ -1,10 +1,11 @@
 # backend/seed_district.py
 import asyncio
 import json
-from sqlalchemy import select, delete
+from sqlalchemy import delete
 from app.database import engine, async_session, Base
-from app.models import EWNodeModel, TacticalZoneModel, TacticalSensorModel, DownedDroneModel
+from app.models import EWNodeModel, TacticalZoneModel, TacticalSensorModel
 from app.config import settings
+from app.core.risk_h3 import load_grid, generate_district_zones_from_h3
 
 async def seed():
     async with engine.begin() as conn:
@@ -20,80 +21,73 @@ async def seed():
         base_lat = settings.DATUM_LAT
         base_lon = settings.DATUM_LON
 
-        print("[*] Розгортання тактичних зон (Safe & Danger)...")
-        zones = [
-            TacticalZoneModel(
-                name="Ж/М Оболонь (Цивільна забудова)",
-                zone_type="danger",
-                coordinates=json.dumps([
-                    [base_lat + 0.045, base_lon - 0.045],
-                    [base_lat + 0.075, base_lon - 0.045],
-                    [base_lat + 0.075, base_lon - 0.010],
-                    [base_lat + 0.045, base_lon - 0.010]
-                ])
-            ),
-            TacticalZoneModel(
-                name="Ж/М Троєщина (Щільна забудова)",
-                zone_type="danger",
-                coordinates=json.dumps([
-                    [base_lat + 0.050, base_lon + 0.035],
-                    [base_lat + 0.090, base_lon + 0.035],
-                    [base_lat + 0.090, base_lon + 0.075],
-                    [base_lat + 0.050, base_lon + 0.075]
-                ])
-            ),
-            TacticalZoneModel(
-                name="Місто Вишгород & Дамба ГЕС",
-                zone_type="danger",
-                coordinates=json.dumps([
-                    [base_lat + 0.125, base_lon - 0.060],
-                    [base_lat + 0.155, base_lon - 0.060],
-                    [base_lat + 0.155, base_lon - 0.015],
-                    [base_lat + 0.125, base_lon - 0.015]
-                ])
-            ),
-            TacticalZoneModel(
-                name="Промзона Бровари Захід",
-                zone_type="danger",
-                coordinates=json.dumps([
-                    [base_lat + 0.040, base_lon + 0.140],
-                    [base_lat + 0.070, base_lon + 0.140],
-                    [base_lat + 0.070, base_lon + 0.180],
-                    [base_lat + 0.040, base_lon + 0.180]
-                ])
-            ),
-            TacticalZoneModel(
-                name="KILLBOX-A: Заплава р. Десна (Острови & Луки)",
-                zone_type="safe",
-                coordinates=json.dumps([
-                    [base_lat + 0.080, base_lon - 0.005],
-                    [base_lat + 0.130, base_lon + 0.010],
-                    [base_lat + 0.135, base_lon + 0.045],
-                    [base_lat + 0.085, base_lon + 0.030]
-                ])
-            ),
-            TacticalZoneModel(
-                name="KILLBOX-B: Північно-Броварські торфовища & пустир",
-                zone_type="safe",
-                coordinates=json.dumps([
-                    [base_lat + 0.090, base_lon + 0.100],
-                    [base_lat + 0.140, base_lon + 0.100],
-                    [base_lat + 0.140, base_lon + 0.160],
-                    [base_lat + 0.090, base_lon + 0.160]
-                ])
-            ),
-            TacticalZoneModel(
-                name="KILLBOX-C: Вишгородське лісництво (Безлюдний масив)",
-                zone_type="safe",
-                coordinates=json.dumps([
-                    [base_lat + 0.130, base_lon - 0.120],
-                    [base_lat + 0.180, base_lon - 0.120],
-                    [base_lat + 0.180, base_lon - 0.070],
-                    [base_lat + 0.130, base_lon - 0.070]
-                ])
-            )
-        ]
-        session.add_all(zones)
+        print("[*] Генерація об'єднаних районів із сітки H3 (Червоні, Помаранчеві, Зелені)...")
+        load_grid()
+        h3_districts = generate_district_zones_from_h3()
+
+        if h3_districts:
+            print(f"[+] Згенеровано {len(h3_districts)} об'єднаних зон з H3-гексагонів!")
+            for d in h3_districts:
+                session.add(TacticalZoneModel(
+                    name=d["name"],
+                    zone_type=d["zone_type"],
+                    coordinates=json.dumps(d["coordinates"])
+                ))
+        else:
+            print("[!] H3 grid не знайдено, використовується стандартний тактичний набір зон...")
+            fallback_zones = [
+                TacticalZoneModel(
+                    name="Червона зона: Ж/М Оболонь (Забудова)",
+                    zone_type="danger",
+                    coordinates=json.dumps([
+                        [base_lat + 0.045, base_lon - 0.045],
+                        [base_lat + 0.075, base_lon - 0.045],
+                        [base_lat + 0.075, base_lon - 0.010],
+                        [base_lat + 0.045, base_lon - 0.010]
+                    ])
+                ),
+                TacticalZoneModel(
+                    name="Червона зона: Ж/М Троєщина (Щільна забудова)",
+                    zone_type="danger",
+                    coordinates=json.dumps([
+                        [base_lat + 0.050, base_lon + 0.035],
+                        [base_lat + 0.090, base_lon + 0.035],
+                        [base_lat + 0.090, base_lon + 0.075],
+                        [base_lat + 0.050, base_lon + 0.075]
+                    ])
+                ),
+                TacticalZoneModel(
+                    name="Помаранчева зона: Буфер узбережжя р. Десна",
+                    zone_type="caution",
+                    coordinates=json.dumps([
+                        [base_lat + 0.070, base_lon - 0.015],
+                        [base_lat + 0.095, base_lon - 0.015],
+                        [base_lat + 0.095, base_lon + 0.015],
+                        [base_lat + 0.070, base_lon + 0.015]
+                    ])
+                ),
+                TacticalZoneModel(
+                    name="Зелена зона: KILLBOX-A (Заплава р. Десна)",
+                    zone_type="safe",
+                    coordinates=json.dumps([
+                        [base_lat + 0.080, base_lon - 0.005],
+                        [base_lat + 0.130, base_lon + 0.010],
+                        [base_lat + 0.135, base_lon + 0.045],
+                        [base_lat + 0.085, base_lon + 0.030]
+                    ])
+                ),
+                TacticalZoneModel(
+                    name="Зелена зона: KILLBOX-B (Пустир & Торфовища)",
+                    zone_type="safe",
+                    coordinates=json.dumps([
+                        [base_lat + 0.090, base_lon + 0.100],
+                        [base_lat + 0.140, base_lon + 0.100],
+                        [base_lat + 0.140, base_lon + 0.160],
+                        [base_lat + 0.090, base_lon + 0.160]
+                    ])
+                )
+            ]
+            session.add_all(fallback_zones)
 
         print("[*] Розміщення комплексів спрямованого РЕБ (Directional EW)...")
         ew_nodes = [

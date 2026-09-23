@@ -23,8 +23,9 @@ class TacticalZoneModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
-    zone_type = Column(String, nullable=False)  # "danger" або "safe"
-    coordinates = Column(Text, nullable=False)
+    # "danger" (червона), "caution" (помаранчева), "safe" (зелена)
+    zone_type = Column(String, nullable=False)
+    coordinates = Column(Text, nullable=False)     # JSON масив [[lat, lon], ...]
 
 class TacticalSensorModel(Base):
     __tablename__ = "tactical_sensors"

@@ -3,6 +3,8 @@ import math
 import os
 import urllib.request
 from typing import Dict, List, Tuple
+from shapely.geometry import Polygon as ShapelyPoly, MultiPolygon
+from shapely.ops import unary_union
 
 try:
     import h3
@@ -18,6 +20,7 @@ W_ROAD = 0.10
 W_GREEN = 0.05
 W_WATER = 0.05
 _CELL_AREA_CAP = 105000.0
+
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
     "https://z.overpass-api.de/api/interpreter",
@@ -36,6 +39,8 @@ _loaded = False
 _max_b = 1
 _max_r = 1
 _max_a = 1.0
+_max_poi = 1
+_max_g = 1.0
 
 
 def _ensure_h3():
@@ -196,16 +201,6 @@ def fetch_osm_counts(lat: float, lon: float, r_m: float = GRID_RADIUS_M) -> dict
         pts = _query(ts, tw, tn, te, "b")
         time.sleep(8)
         pts += _query(ts, tw, tn, te, "r")
-        if len(pts) >= 90000:
-            mid_lat, mid_lon = (ts + tn) / 2.0, (tw + te) / 2.0
-            for qs, qw, qn, qe in (
-                (ts, tw, mid_lat, mid_lon), (ts, mid_lon, mid_lat, te),
-                (mid_lat, tw, tn, mid_lon), (mid_lat, mid_lon, tn, te),
-            ):
-                time.sleep(8)
-                pts += _query(qs, qw, qn, qe, "b")
-                time.sleep(8)
-                pts += _query(qs, qw, qn, qe, "r")
         state["pts"].extend(pts)
         state["done"].append(list(key))
         _save_tmp(state)
@@ -230,12 +225,7 @@ def fetch_osm_counts(lat: float, lon: float, r_m: float = GRID_RADIUS_M) -> dict
             os.remove(OSM_TMP)
     except Exception:
         pass
-    print(f"osm total: {len(uniq)} pts", flush=True)
     return _cells_from_pts(out, lat, lon)
-
-
-def sample_raster(_tif_path: str, _lat: float, _lon: float) -> float:
-    return 0.0
 
 
 def build_static_cells(lat: float, lon: float, r_m: float = GRID_RADIUS_M) -> Dict[str, dict]:
@@ -265,7 +255,7 @@ def build_static_cells(lat: float, lon: float, r_m: float = GRID_RADIUS_M) -> Di
     _raw_max_poi = max(poi.values()) if poi else 1
     max_poi = min(_raw_max_poi, 50)
     max_g = max(1.0, max(green_c.values()) if green_c else 1.0)
-    for c, info in cells.items():
+    for c in cells:
         nb = bld.get(c, 0)
         nr = road.get(c, 0)
         ar = area.get(c, 0.0)
@@ -285,7 +275,7 @@ def build_static_cells(lat: float, lon: float, r_m: float = GRID_RADIUS_M) -> Di
         cells[c]["green"] = round(ag, 1)
         cells[c]["area"] = round(ar, 1)
     blurred = {}
-    for c, info in cells.items():
+    for c in cells:
         try:
             ring = h3.grid_disk(c, 1)
         except Exception:
@@ -305,8 +295,7 @@ def save_grid(cells: Dict[str, dict], path: str = GRID_PATH):
 
 
 def load_grid(path: str = GRID_PATH) -> bool:
-    global _cells, _loaded, _max_b, _max_r, _max_a
-    global _max_poi, _max_g
+    global _cells, _loaded, _max_b, _max_r, _max_a, _max_poi, _max_g
     _ensure_h3()
     try:
         with open(path) as f:
@@ -323,8 +312,102 @@ def load_grid(path: str = GRID_PATH) -> bool:
         _loaded = False
         return False
 
-_max_poi = 1
-_max_g = 1.0
+
+def get_loaded_cells() -> Dict[str, dict]:
+    global _cells
+    if not _loaded or not _cells:
+        load_grid()
+    return _cells
+
+
+def generate_district_zones_from_h3(min_area_deg: float = 0.00003) -> List[dict]:
+    """
+    Трансформує гексагони H3 у 3 типи суцільних об'єднаних районів:
+    1. 'danger' (Червона зона) — safety < 40% (щільна забудова, високий ризик)
+    2. 'caution' (Помаранчева зона) — 40% <= safety < 60% (буферна зона)
+    3. 'safe' (Зелена зона) — safety >= 60% (луки, водойми, ліси)
+    Використовує unary_union для об'єднання суміжних гексагонів у єдині полігони.
+    """
+    _ensure_h3()
+    cells = get_loaded_cells()
+    if not cells:
+        return []
+
+    buckets: Dict[str, List[ShapelyPoly]] = {
+        "danger": [],
+        "caution": [],
+        "safe": []
+    }
+
+    for cell_id, info in cells.items():
+        safety = float(info.get("safety", 0.5))
+        if safety < 0.40:
+            category = "danger"
+        elif safety < 0.60:
+            category = "caution"
+        else:
+            category = "safe"
+
+        try:
+            boundary = h3.cell_to_boundary(cell_id)
+            # Shapely використовує (x, y) = (lon, lat)
+            poly = ShapelyPoly([(p[1], p[0]) for p in boundary])
+            if poly.is_valid:
+                buckets[category].append(poly)
+            else:
+                fixed = poly.buffer(0)
+                if not fixed.is_empty:
+                    buckets[category].append(fixed)
+        except Exception:
+            continue
+
+    category_labels = {
+        "danger": ("Червона зона", "Ураження суворо заборонено: цивільна інфраструктура"),
+        "caution": ("Помаранчева зона", "Буферний район: утриматись від придушення"),
+        "safe": ("Зелена зона", "KILLBOX: дозволена зона утилізації дронів")
+    }
+
+    generated_zones: List[dict] = []
+
+    for cat in ["danger", "caution", "safe"]:
+        poly_list = buckets[cat]
+        if not poly_list:
+            continue
+
+        try:
+            merged = unary_union(poly_list)
+        except Exception:
+            continue
+
+        # Спрощуємо контур для оптимального відображення на карті та тактичної плавності
+        merged = merged.simplify(0.0002, preserve_topology=True)
+
+        geoms = []
+        if isinstance(merged, ShapelyPoly):
+            geoms = [merged]
+        elif isinstance(merged, MultiPolygon):
+            geoms = list(merged.geoms)
+
+        idx = 1
+        for g in geoms:
+            if g.is_empty or g.area < min_area_deg:
+                continue
+
+            # Зовнішній контур: повертаємо [lat, lon]
+            exterior_coords = [[round(p[1], 5), round(p[0], 5)] for p in g.exterior.coords]
+            if len(exterior_coords) < 3:
+                continue
+
+            title_prefix, _ = category_labels[cat]
+            zone_name = f"{title_prefix} (Сектор #{idx})"
+            generated_zones.append({
+                "name": zone_name,
+                "zone_type": cat,
+                "coordinates": exterior_coords
+            })
+            idx += 1
+
+    return generated_zones
 
 
 def _why(nb: int, nr: int, ar: float = 0.0, np_: int = 0, ag: float = 0.0) -> str:
@@ -347,30 +430,26 @@ def _why(nb: int, nr: int, ar: float = 0.0, np_: int = 0, ag: float = 0.0) -> st
     return "Щільна забудова поруч (~%.0f м²)" % ar
 
 
-def _fallback_safety(x: float, y: float, safe_polys, danger_polys, ci_assets) -> float:
+def _fallback_safety(x: float, y: float, safe_polys, caution_polys, danger_polys, ci_assets) -> float:
     from shapely.geometry import Point
     pt = Point(x, y)
     try:
+        # 1. Пріоритет червоних зон
         for dz in danger_polys or []:
             if dz.contains(pt):
-                s = 0.05
+                return 0.10
+        # 2. Помаранчеві зони
+        for cz in caution_polys or []:
+            if cz.contains(pt):
+                return 0.45
+        # 3. Зелені зони
+        for sz in safe_polys or []:
+            if sz.contains(pt):
+                s = 0.90
                 break
         else:
-            s = None
-        if s is None:
-            for sz in safe_polys or []:
-                if sz.contains(pt):
-                    s = 0.90
-                    break
-            else:
-                s = 0.45
-        if s > 0.5:
-            try:
-                dmin = min((dz.distance(pt) for dz in (danger_polys or [])), default=1e9)
-                if dmin < 150.0:
-                    s = 0.45 + (s - 0.45) * (dmin / 150.0)
-            except Exception:
-                pass
+            s = 0.50
+
         for ci in ci_assets or []:
             dx = x - ci["x"]
             dy = y - ci["y"]
@@ -378,11 +457,11 @@ def _fallback_safety(x: float, y: float, safe_polys, danger_polys, ci_assets) ->
             s -= 0.40 * math.exp(-d2 / (2.0 * 800.0 * 800.0))
         return max(0.02, min(0.98, s))
     except Exception:
-        return 0.45
+        return 0.50
 
 
 def safety_at_enu(x: float, y: float, lat: float, lon: float,
-                  safe_polys, danger_polys, ci_assets) -> float:
+                  safe_polys, caution_polys, danger_polys, ci_assets) -> float:
     base = None
     if _loaded and _cells and h3 is not None:
         try:
@@ -392,7 +471,7 @@ def safety_at_enu(x: float, y: float, lat: float, lon: float,
                 base = float(info.get("safety", 0.5))
         except Exception:
             base = None
-    zone_v = _fallback_safety(x, y, safe_polys, danger_polys, [])
+    zone_v = _fallback_safety(x, y, safe_polys, caution_polys, danger_polys, [])
     if base is None:
         s = zone_v
     else:
@@ -405,7 +484,7 @@ def safety_at_enu(x: float, y: float, lat: float, lon: float,
     return max(0.02, min(0.98, s))
 
 
-def grid_for_frontend(limit: int = 2500) -> list:
+def grid_for_frontend(limit: int = 3000) -> list:
     if not _loaded or not _cells:
         return []
     items = sorted(_cells.items(), key=lambda kv: kv[1].get("safety", 0.5))

@@ -6,7 +6,7 @@ class InterceptionPlanner:
     """
     Планувальник точкового та адаптивного придушення:
     1. Рахує траєкторію балістично-інерційного зриву після глушіння GPS.
-    2. Перевіряє безпеку падіння над зеленою зоною.
+    2. Перевіряє безпеку падіння над зеленою, помаранчевою або червоною зоною.
     3. Рахує кути наведення турелі з упередженням (Lead-Angle Prediction).
     4. Адаптує ширину діаграми спрямованості антени (Adaptive Beamwidth).
     5. Виявляє загрозу критичній інфраструктурі (Emergency CI Override).
@@ -78,11 +78,24 @@ class InterceptionPlanner:
         return imp_x, imp_y, t_fall, sigma_along, sigma_cross, heading
 
     @staticmethod
-    def is_safe_drop(impact_x: float, impact_y: float, safe_zones: list[Polygon], danger_zones: list[Polygon]) -> bool:
+    def is_safe_drop(
+        impact_x: float, 
+        impact_y: float, 
+        safe_zones: list[Polygon], 
+        danger_zones: list[Polygon],
+        caution_zones: list[Polygon] = None
+    ) -> bool:
         pt = Point(impact_x, impact_y)
+        # Червоні зони: суворо заборонено
         for d_zone in danger_zones:
             if d_zone.contains(pt):
                 return False
+        # Помаранчеві зони (буферні): утримання від ураження
+        if caution_zones:
+            for c_zone in caution_zones:
+                if c_zone.contains(pt):
+                    return False
+        # Зелені зони: дозволено
         for s_zone in safe_zones:
             if s_zone.contains(pt):
                 return True

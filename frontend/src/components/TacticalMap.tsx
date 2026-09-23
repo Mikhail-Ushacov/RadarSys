@@ -6,15 +6,25 @@ import {
 } from 'react-leaflet';
 import L from 'leaflet';
 import { Track, EWNode, TacticalZone, TacticalSensor } from '../types';
-import { Navigation, Move, Edit3, Trash2 } from 'lucide-react';
+import { Navigation, Move, Edit3, Trash2, CheckCircle2, RotateCcw, X } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 
-interface RiskCell { cell: string; safety: number; risk: number; b: number; r: number; poi?: number; green?: number; why: string; boundary: [number, number][]; }
+interface RiskCell { 
+  cell: string; 
+  safety: number; 
+  risk: number; 
+  b: number; 
+  r: number; 
+  poi?: number; 
+  green?: number; 
+  why: string; 
+  boundary: [number, number][]; 
+}
 
 function safetyColor(s: number): string {
-  if (s >= 60) return '#10b981';
-  if (s >= 40) return '#f59e0b';
-  return '#ef4444';
+  if (s >= 60) return '#10b981'; // Зелений
+  if (s >= 40) return '#f59e0b'; // Помаранчевий
+  return '#ef4444';              // Червоний
 }
 
 function getBeamSector(lat: number, lon: number, azimuth: number, beamwidth: number, rangeMeters: number): [number, number][] {
@@ -66,6 +76,13 @@ const createCustomIcon = (svgContent: string, bg: string, border: string) => {
     iconAnchor: [16, 16]
   });
 };
+
+const vertexPointIcon = L.divIcon({
+  className: 'custom-vertex-dot',
+  html: `<div style="width: 12px; height: 12px; background: #38bdf8; border: 2px solid #ffffff; border-radius: 50%; box-shadow: 0 0 6px #0284c7;"></div>`,
+  iconSize: [12, 12],
+  iconAnchor: [6, 6]
+});
 
 const icons = {
   drone: (heading: number, status?: string) => {
@@ -120,11 +137,21 @@ const icons = {
     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
     '#450a0a', '#ef4444'
   ),
-  zone_anchor: (isSafe: boolean) => createCustomIcon(
-    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${isSafe ? '#34d399' : '#f87171'}" stroke-width="3"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/></svg>`,
-    isSafe ? '#064e3b' : '#450a0a',
-    isSafe ? '#34d399' : '#f87171'
-  )
+  zone_anchor: (zoneType: string) => {
+    let bg = '#450a0a';
+    let border = '#f87171';
+    if (zoneType === 'safe') {
+      bg = '#064e3b';
+      border = '#34d399';
+    } else if (zoneType === 'caution') {
+      bg = '#451a03';
+      border = '#f59e0b';
+    }
+    return createCustomIcon(
+      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${border}" stroke-width="3"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+      bg, border
+    );
+  }
 };
 
 const MapEventsController: React.FC<{ 
@@ -288,9 +315,22 @@ const ZoneItem: React.FC<{
   onEditObject: (obj: EditableObject) => void;
   onDeleteZone: (id: number) => void;
 }> = ({ zone, onDragStart, onCommitMoveZone, onEditObject, onDeleteZone }) => {
-  const isSafe = zone.zone_type === 'safe';
   const center = useMemo(() => getPolygonCenter(zone.coordinates), [zone.coordinates]);
   const zoneDragRef = useRef<{ initCenter: [number, number]; initCoords: [number, number][] } | null>(null);
+
+  let strokeColor = '#ef4444';
+  let fillColor = '#b91c1c';
+  let title = 'ЧЕРВОНА ЗОНА (ЗАБОРОНЕНО)';
+
+  if (zone.zone_type === 'safe') {
+    strokeColor = '#10b981';
+    fillColor = '#059669';
+    title = 'ЗЕЛЕНА ЗОНА (KILLBOX)';
+  } else if (zone.zone_type === 'caution') {
+    strokeColor = '#f59e0b';
+    fillColor = '#d97706';
+    title = 'ПОМАРАНЧЕВА ЗОНА (БУФЕР)';
+  }
 
   const eventHandlers = useMemo(
     () => ({
@@ -317,20 +357,19 @@ const ZoneItem: React.FC<{
       <Polygon
         positions={zone.coordinates}
         pathOptions={{
-          color: isSafe ? '#10b981' : '#ef4444',
-          fillColor: isSafe ? '#059669' : '#b91c1c',
-          fillOpacity: 0.22,
-          weight: 1.5,
-          dashArray: isSafe ? '4, 4' : undefined
+          color: strokeColor,
+          fillColor: fillColor,
+          fillOpacity: 0.28,
+          weight: 1.8,
+          dashArray: zone.zone_type === 'safe' ? '4, 4' : zone.zone_type === 'caution' ? '6, 6' : undefined
         }}
       />
-      <Marker position={center} icon={icons.zone_anchor(isSafe)} draggable={true} eventHandlers={eventHandlers}>
+      <Marker position={center} icon={icons.zone_anchor(zone.zone_type)} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
           <div className="popup-tactical">
-            <strong style={{ color: isSafe ? '#059669' : '#b91c1c' }}>
-              {isSafe ? 'ЗЕЛЕНА ЗОНА (KILLBOX)' : 'ЧЕРВОНА ЗОНА (NO-DROP)'}
-            </strong>
+            <strong style={{ color: strokeColor }}>{title}</strong>
             <p style={{ margin: '4px 0', fontWeight: 'bold' }}>{zone.name}</p>
+            <p style={{ margin: '2px 0', fontSize: '0.72rem', color: '#64748b' }}>Вершин контуру: {zone.coordinates.length}</p>
             <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
               <button onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'zone', data: zone }); }} className="btn-popup-edit">
                 <Edit3 size={12} /> Редагувати
@@ -351,6 +390,12 @@ interface Props {
   ewNodes: EWNode[];
   zones: TacticalZone[];
   sensors: TacticalSensor[];
+  isDrawingZone: boolean;
+  drawingPoints: [number, number][];
+  onAddDrawingPoint: (lat: number, lon: number) => void;
+  onFinishDrawingZone: () => void;
+  onCancelDrawingZone: () => void;
+  onUndoDrawingPoint: () => void;
   onMapClick: (lat: number, lon: number) => void;
   onDeleteZone: (id: number) => void;
   onDeleteSensor: (id: number) => void;
@@ -366,17 +411,18 @@ const MAP_KEY = (import.meta as any).env?.VITE_MAP_API_KEY || '';
 
 export const TacticalMap: React.FC<Props> = ({ 
   tracks, ewNodes, zones, sensors, 
+  isDrawingZone, drawingPoints, onAddDrawingPoint, onFinishDrawingZone, onCancelDrawingZone, onUndoDrawingPoint,
   onMapClick, onDeleteZone, onDeleteSensor, onDeleteEW, onEditObject,
   onDragStart, onCommitMoveEW, onCommitMoveSensor, onCommitMoveZone
 }) => {
   const defaultCenter: [number, number] = [50.4501, 30.5234];
   const [cursorCoords, setCursorCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [riskCells, setRiskCells] = useState<RiskCell[]>([]);
-  const [showRisk, setShowRisk] = useState(true);
+  const [showRisk, setShowRisk] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    const url = `http://${window.location.hostname}:8000/api/v1/risk/grid?limit=8000`;
+    const url = `http://${window.location.hostname}:8000/api/v1/risk/grid?limit=3000`;
     fetch(url).then((r) => r.json()).then((d) => {
       if (!cancelled && d && Array.isArray(d.cells)) setRiskCells(d.cells);
     }).catch(() => {});
@@ -388,16 +434,62 @@ export const TacticalMap: React.FC<Props> = ({
   const deltaX = cursorCoords ? ((cursorCoords.lon - datumLon) * 111412.84 * Math.cos((datumLat * Math.PI) / 180)).toFixed(0) : '0';
   const deltaY = cursorCoords ? ((cursorCoords.lat - datumLat) * 111132.954).toFixed(0) : '0';
 
+  const handleContainerMapClick = (lat: number, lon: number) => {
+    if (isDrawingZone) {
+      onAddDrawingPoint(lat, lon);
+    } else {
+      onMapClick(lat, lon);
+    }
+  };
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* ПАНЕЛЬ УПРАВЛІННЯ РЕЖИМОМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ */}
+      {isDrawingZone && (
+        <div className="drawing-toolbar-overlay">
+          <div className="drawing-toolbar-title">
+            <span className="pulse-dot"></span> РЕЖИМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ
+          </div>
+          <div className="drawing-toolbar-desc">
+            Клікайте по карті, щоб позначити вершини контуру. Потрібно мінімум 3 точки.
+          </div>
+          <div className="drawing-toolbar-actions">
+            <span className="drawing-points-count">ВЕРШИН: <b>{drawingPoints.length}</b></span>
+            <button 
+              onClick={onUndoDrawingPoint} 
+              disabled={drawingPoints.length === 0} 
+              className="btn-draw-tool"
+              title="Видалити останню точку"
+            >
+              <RotateCcw size={14} /> Скасувати точку
+            </button>
+            <button 
+              onClick={onFinishDrawingZone} 
+              disabled={drawingPoints.length < 3} 
+              className="btn-draw-tool finish"
+              title="Замкнути полігон та зберегти в БД"
+            >
+              <CheckCircle2 size={14} /> Завершити та зберегти
+            </button>
+            <button onClick={onCancelDrawingZone} className="btn-draw-tool cancel">
+              <X size={14} /> Скасувати
+            </button>
+          </div>
+        </div>
+      )}
+
       <MapContainer center={defaultCenter} zoom={11} style={{ width: '100%', height: '100%' }}>
         <TileLayer 
           url={`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${MAP_KEY}`}
           attribution='&copy; Stadia Maps &copy; OpenStreetMap'
         />
 
-        <MapEventsController onMapClick={onMapClick} onMouseMove={(lat, lon) => setCursorCoords({ lat, lon })} />
+        <MapEventsController 
+          onMapClick={handleContainerMapClick} 
+          onMouseMove={(lat, lon) => setCursorCoords({ lat, lon })} 
+        />
 
+        {/* ШАР ПЕРЕГЛЯДУ ГЕКСАГОНАЛЬНОЇ СІТКИ (ЯКЩО УВІМКНЕНО) */}
         {showRisk && riskCells.map((c) => (
           <Polygon
             key={`risk-${c.cell}`}
@@ -405,30 +497,64 @@ export const TacticalMap: React.FC<Props> = ({
             pathOptions={{
               stroke: false,
               fillColor: safetyColor(c.safety),
-              fillOpacity: 0.45,
+              fillOpacity: 0.35,
             }}
           >
             <Popup>
               <div className="popup-tactical">
-                <strong>Комірка · безпека <span style={{ color: safetyColor(c.safety) }}>{c.safety.toFixed(1)}%</span></strong>
+                <strong>H3 Комірка · безпека <span style={{ color: safetyColor(c.safety) }}>{c.safety.toFixed(1)}%</span></strong>
                 <p style={{ margin: '4px 0' }}>{c.why}</p>
-                <p style={{ margin: '3px 0', color: '#475569' }}>OSM: {c.b} буд. · {c.r} дор.{c.poi !== undefined ? ` · ${c.poi} POI` : ''} | Ризик {c.risk.toFixed(0)}%</p>
-                <p style={{ margin: '3px 0', color: '#94a3b8', fontSize: '11px' }}>Рішення: зони 70 / сітка 30, поріг 60%</p>
+                <p style={{ margin: '3px 0', color: '#475569' }}>Ризик: {c.risk.toFixed(0)}% | Будівель: {c.b} | Доріг: {c.r}</p>
               </div>
             </Popup>
           </Polygon>
         ))}
 
+        {/* ТАКТИЧНІ РАЙОНИ ТА ЗОНИ ВІЛЬНОЇ ФОРМИ */}
         {zones.map((zone) => (
-          <ZoneItem key={`zone-${zone.id}`} zone={zone} onDragStart={onDragStart} onCommitMoveZone={onCommitMoveZone} onEditObject={onEditObject} onDeleteZone={onDeleteZone} />
+          <ZoneItem 
+            key={`zone-${zone.id}`} 
+            zone={zone} 
+            onDragStart={onDragStart} 
+            onCommitMoveZone={onCommitMoveZone} 
+            onEditObject={onEditObject} 
+            onDeleteZone={onDeleteZone} 
+          />
         ))}
 
+        {/* ПЕРЕДПРОГЛЯД ПОЛІГОНУ, ЩО МАЛЮЄТЬСЯ В ЦЕЙ МОМЕНТ */}
+        {isDrawingZone && drawingPoints.length > 0 && (
+          <>
+            <Polyline 
+              positions={drawingPoints.length > 2 ? [...drawingPoints, drawingPoints[0]] : drawingPoints} 
+              pathOptions={{ color: '#38bdf8', weight: 2.5, dashArray: '5, 5' }} 
+            />
+            {drawingPoints.map((pt, idx) => (
+              <Marker key={`draw-pt-${idx}`} position={pt} icon={vertexPointIcon} />
+            ))}
+          </>
+        )}
+
         {sensors.map((sensor) => (
-          <SensorMarkerItem key={`sensor-${sensor.id}`} sensor={sensor} onDragStart={onDragStart} onCommitMoveSensor={onCommitMoveSensor} onEditObject={onEditObject} onDeleteSensor={onDeleteSensor} />
+          <SensorMarkerItem 
+            key={`sensor-${sensor.id}`} 
+            sensor={sensor} 
+            onDragStart={onDragStart} 
+            onCommitMoveSensor={onCommitMoveSensor} 
+            onEditObject={onEditObject} 
+            onDeleteSensor={onDeleteSensor} 
+          />
         ))}
 
         {ewNodes.map((node) => (
-          <EWNodeMarkerItem key={`ew-${node.id}`} node={node} onDragStart={onDragStart} onCommitMoveEW={onCommitMoveEW} onEditObject={onEditObject} onDeleteEW={onDeleteEW} />
+          <EWNodeMarkerItem 
+            key={`ew-${node.id}`} 
+            node={node} 
+            onDragStart={onDragStart} 
+            onCommitMoveEW={onCommitMoveEW} 
+            onEditObject={onEditObject} 
+            onDeleteEW={onDeleteEW} 
+          />
         ))}
 
         {tracks.map((target) => (
@@ -442,8 +568,9 @@ export const TacticalMap: React.FC<Props> = ({
                   <p style={{ margin: '3px 0' }}>Висота: <b>{target.alt.toFixed(0)} м</b></p>
                   <p style={{ margin: '3px 0' }}>Швидкість: <b>{(target.speed * 3.6).toFixed(0)} км/год</b></p>
                   <p style={{ margin: '3px 0' }}>Курс: <b>{target.heading.toFixed(0)}°</b></p>
-                  {target.crash_safety !== undefined && <p style={{ margin: '3px 0' }}>Безпека точки падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>}
-                  {target.corridor_safety !== undefined && <p style={{ margin: '3px 0' }}>Безпека коридору: <b style={{ color: safetyColor(target.corridor_safety) }}>{target.corridor_safety.toFixed(1)}%</b></p>}
+                  {target.crash_safety !== undefined && (
+                    <p style={{ margin: '3px 0' }}>Безпека точки падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>
+                  )}
                   {target.nearest_ci && <p style={{ margin: '3px 0' }}>До {target.nearest_ci}: <b>{target.ci_distance} м</b></p>}
                 </div>
               </Popup>
@@ -463,16 +590,16 @@ export const TacticalMap: React.FC<Props> = ({
                     }}
                   />
                 ) : (
-                <Circle
-                  center={target.crash_point}
-                  radius={220}
-                  pathOptions={{
-                    color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
-                    fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
-                    fillOpacity: 0.45,
-                    weight: target.is_ci_critical ? 3 : 1.5
-                  }}
-                />
+                  <Circle
+                    center={target.crash_point}
+                    radius={220}
+                    pathOptions={{
+                      color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                      fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                      fillOpacity: 0.45,
+                      weight: target.is_ci_critical ? 3 : 1.5
+                    }}
+                  />
                 )}
               </>
             )}
@@ -480,18 +607,31 @@ export const TacticalMap: React.FC<Props> = ({
         ))}
       </MapContainer>
 
+      {/* КНОПКА ПЕРЕМИКАННЯ РЕЖИМІВ */}
       <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 500, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button onClick={() => setShowRisk((v) => !v)} style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>
-          {showRisk ? 'Сховати safety-шар' : 'Показати safety-шар'} ({riskCells.length})
+        <button 
+          onClick={() => setShowRisk((v) => !v)} 
+          style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}
+        >
+          {showRisk ? 'Сховати H3 гексагони' : 'Показати сирі H3 гексагони'}
         </button>
       </div>
 
-      <div style={{ position: 'absolute', bottom: 20, left: 12, zIndex: 500, background: 'rgba(15,23,42,0.9)', border: '1px solid #334155', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#e2e8f0' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Безпека</div>
-        <div><span style={{ display: 'inline-block', width: 10, height: 10, background: '#10b981', marginRight: 6 }} />≥60% — ураження дозволено</div>
-        <div><span style={{ display: 'inline-block', width: 10, height: 10, background: '#f59e0b', marginRight: 6 }} />40–60% — утриматись</div>
-        <div><span style={{ display: 'inline-block', width: 10, height: 10, background: '#ef4444', marginRight: 6 }} />&lt;40% — заборонено</div>
-        <div style={{ color: '#94a3b8', marginTop: 4 }}>Клік по комірці — деталі</div>
+      {/* ТАКТИЧНА ЛЕГЕНДА ЗОН БЕЗПЕКИ */}
+      <div style={{ position: 'absolute', bottom: 20, left: 12, zIndex: 500, background: 'rgba(15,23,42,0.92)', border: '1px solid #334155', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#e2e8f0' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: 4, letterSpacing: '0.04em' }}>ТАКТИЧНІ РАЙОНИ:</div>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
+          <span style={{ display: 'inline-block', width: 12, height: 12, background: '#10b981', marginRight: 6, borderRadius: 2 }} />
+          <b>Зелена зона (≥60%)</b> — Killbox, ураження дозволено
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
+          <span style={{ display: 'inline-block', width: 12, height: 12, background: '#f59e0b', marginRight: 6, borderRadius: 2 }} />
+          <b>Помаранчева зона (40-60%)</b> — Буфер, утриматись
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span style={{ display: 'inline-block', width: 12, height: 12, background: '#ef4444', marginRight: 6, borderRadius: 2 }} />
+          <b>Червона зона (&lt;40%)</b> — Місто/люди, падіння заборонено
+        </div>
       </div>
 
       <div className="cursor-coordinate-hud">
