@@ -264,6 +264,22 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleOptimizeEW = async () => {
+    try {
+      const res = await fetch(`${backendUrl}/api/v1/ew/optimize?node_count=7&replace=true`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.status === 'success' && data.nodes) {
+        setEwNodes(data.nodes);
+        alert(`Успішно оптимізовано та розгорнуто ${data.count} комплексів РЕБ по всіх секторах!`);
+      }
+    } catch (err) {
+      console.error('Помилка оптимізації РЕБ:', err);
+      alert('Помилка виконання оптимізації. Перевірте зв’язок із сервером.');
+    }
+  };
+
   return (
     <div className="app-root-layout">
       {/* Верхнє навігаційне меню */}
@@ -319,6 +335,7 @@ export const App: React.FC = () => {
             onOpenAddModal={handleOpenAddModal}
             onEditObject={handleEditObject}
             onOpenHistoryPage={() => setCurrentPage('history')}
+            onOptimizeEW={handleOptimizeEW}
           />
           <div className="map-pane">
             <TacticalMap 
@@ -367,5 +384,7 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+
 
 export default App;

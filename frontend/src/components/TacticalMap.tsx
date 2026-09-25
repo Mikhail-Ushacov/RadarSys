@@ -137,20 +137,65 @@ const icons = {
     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
     '#450a0a', '#ef4444'
   ),
+  droneUnknown: () => L.divIcon({
+    className: 'custom-drone-unknown',
+    html: `<div style="
+      width: 32px; 
+      height: 32px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      background: #dc2626; 
+      border: 2px dashed #ffffff; 
+      border-radius: 50%; 
+      color: #fff; 
+      font-weight: 900; 
+      font-size: 16px;
+      box-shadow: 0 0 14px #ef4444;
+      animation: pulse 1s infinite;
+    ">?</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16]
+  }),
+  witnessCall: () => L.divIcon({
+    className: 'custom-112-call',
+    html: `<div style="
+      width: 30px; 
+      height: 30px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      background: #7c2d12; 
+      border: 2px solid #f97316; 
+      border-radius: 50%; 
+      box-shadow: 0 0 12px #ea580c;
+    ">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fdba74" stroke-width="2.5">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+      </svg>
+    </div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+  }),
   zone_anchor: (zoneType: string) => {
-    let bg = '#450a0a';
     let border = '#f87171';
-    if (zoneType === 'safe') {
-      bg = '#064e3b';
-      border = '#34d399';
-    } else if (zoneType === 'caution') {
-      bg = '#451a03';
-      border = '#f59e0b';
-    }
-    return createCustomIcon(
-      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${border}" stroke-width="3"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
-      bg, border
-    );
+    if (zoneType === 'safe') border = '#34d399';
+    else if (zoneType === 'caution') border = '#f59e0b';
+    
+    return L.divIcon({
+      className: 'custom-zone-dot',
+      html: `<div style="
+        width: 10px;
+        height: 10px;
+        background: ${border};
+        border: 1.5px solid #ffffff;
+        border-radius: 50%;
+        box-shadow: 0 0 6px ${border};
+        opacity: 0.7;
+      "></div>`,
+      iconSize: [10, 10],
+      iconAnchor: [5, 5]
+    });
   }
 };
 
@@ -557,54 +602,58 @@ export const TacticalMap: React.FC<Props> = ({
           />
         ))}
 
-        {tracks.map((target) => (
-          <React.Fragment key={`track-${target.id}`}>
-            <Marker position={[target.lat, target.lon]} icon={icons.drone(target.heading, target.status)}>
-              <Popup>
-                <div className="popup-tactical">
-                  <strong style={{ color: target.status === 'CRASHED' ? '#ef4444' : target.status === 'JAMMED' ? '#f59e0b' : '#38bdf8' }}>
-                    {target.id} {target.status === 'CRASHED' ? '💥 (ЗБИТО)' : target.status === 'JAMMED' ? '⚡ (ПРИДУШЕНО)' : '(В ПОЛЬОТІ)'}
-                  </strong>
-                  <p style={{ margin: '3px 0' }}>Висота: <b>{target.alt.toFixed(0)} м</b></p>
-                  <p style={{ margin: '3px 0' }}>Швидкість: <b>{(target.speed * 3.6).toFixed(0)} км/год</b></p>
-                  <p style={{ margin: '3px 0' }}>Курс: <b>{target.heading.toFixed(0)}°</b></p>
-                  {target.crash_safety !== undefined && (
-                    <p style={{ margin: '3px 0' }}>Безпека точки падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>
-                  )}
-                  {target.nearest_ci && <p style={{ margin: '3px 0' }}>До {target.nearest_ci}: <b>{target.ci_distance} м</b></p>}
-                </div>
-              </Popup>
-            </Marker>
+        {tracks.map((target) => {
+          const isInitialContact = target.detection_stage === 'INITIAL_CONTACT' || target.status === 'DETECTING';
 
-            {target.status !== 'CRASHED' && (
-              <>
-                <Polyline positions={[[target.lat, target.lon], target.predicted_30s, target.predicted_60s]} pathOptions={{ color: target.status === 'JAMMED' ? '#f59e0b' : '#fbbf24', dashArray: '4, 8', weight: 2 }} />
-                {target.impact_ellipse && target.impact_ellipse.length >= 3 ? (
-                  <Polygon
-                    positions={target.impact_ellipse}
-                    pathOptions={{
-                      color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
-                      fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
-                      fillOpacity: 0.35,
-                      weight: target.is_ci_critical ? 3 : 1.5
-                    }}
+          return (
+            <React.Fragment key={`track-${target.id}`}>
+              <Marker 
+                position={[target.lat, target.lon]} 
+                icon={isInitialContact ? icons.droneUnknown() : icons.drone(target.heading ?? 0, target.status)}
+              >
+                <Popup>
+                  <div className="popup-tactical">
+                    <strong style={{ color: isInitialContact ? '#f59e0b' : (target.status === 'CRASHED' ? '#ef4444' : '#38bdf8') }}>
+                      {target.id} {isInitialContact ? '⚠️ (ПЕРВИННИЙ КОНТАКТ)' : (target.status === 'CRASHED' ? '💥 (ЗБИТО)' : '🎯 (СУПРОВІД)')}
+                    </strong>
+                    <p style={{ margin: '3px 0' }}>Джерело: <b>{target.last_sensor || 'Сенсор'}</b></p>
+                    <p style={{ margin: '3px 0' }}>Швидкість: <b>{target.speed !== null ? `${(target.speed * 3.6).toFixed(0)} км/год` : 'НЕВІДОМО (?)'}</b></p>
+                    <p style={{ margin: '3px 0' }}>Курс / Азимут: <b>{target.heading !== null ? `${target.heading.toFixed(0)}°` : 'НЕВІДОМО (?)'}</b></p>
+                    {isInitialContact && (
+                      <p style={{ margin: '4px 0', color: '#f59e0b', fontSize: '0.72rem' }}>
+                        Очікується 2-й контакт (камера/мікрофон/МВГ) для розрахунку вектора польоту
+                      </p>
+                    )}
+                    {target.crash_safety !== null && target.crash_safety !== undefined && (
+                      <p style={{ margin: '3px 0' }}>Безпека падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+
+              {/* Прогнозований вектор та еліпс малюються тільки коли курс розраховано */}
+              {!isInitialContact && target.status !== 'CRASHED' && target.predicted_30s && target.predicted_60s && (
+                <>
+                  <Polyline 
+                    positions={[[target.lat, target.lon], target.predicted_30s, target.predicted_60s]} 
+                    pathOptions={{ color: target.status === 'JAMMED' ? '#f59e0b' : '#fbbf24', dashArray: '4, 8', weight: 2 }} 
                   />
-                ) : (
-                  <Circle
-                    center={target.crash_point}
-                    radius={220}
-                    pathOptions={{
-                      color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
-                      fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
-                      fillOpacity: 0.45,
-                      weight: target.is_ci_critical ? 3 : 1.5
-                    }}
-                  />
-                )}
-              </>
-            )}
-          </React.Fragment>
-        ))}
+                  {target.impact_ellipse && target.impact_ellipse.length >= 3 && (
+                    <Polygon
+                      positions={target.impact_ellipse}
+                      pathOptions={{
+                        color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                        fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
+                        fillOpacity: 0.35,
+                        weight: target.is_ci_critical ? 3 : 1.5
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </React.Fragment>
+          );
+        })}
       </MapContainer>
 
       {/* КНОПКА ПЕРЕМИКАННЯ РЕЖИМІВ */}

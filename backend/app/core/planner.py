@@ -119,3 +119,38 @@ class InterceptionPlanner:
 
         is_critical = min_dist <= threshold_m
         return is_critical, min_dist, nearest_ci
+
+    @staticmethod
+    def predict_intended_target(target_x: float, target_y: float, vx: float, vy: float, ci_assets: list[dict]):
+        """
+        Аналізує вектор руху дрона і прогнозує, який саме критичний об'єкт є його ціллю.
+        Враховує відстань та кутове відхилення між вектором швидкості та напрямком на об'єкт.
+        """
+        speed = math.hypot(vx, vy)
+        if speed < 5.0 or not ci_assets:
+            return None, None
+
+        best_asset = None
+        min_score = float('inf')
+
+        for ci in ci_assets:
+            dx = ci["x"] - target_x
+            dy = ci["y"] - target_y
+            dist = math.hypot(dx, dy)
+            if dist < 100.0:
+                return ci["name"], 0.0
+
+            # Скалярний добуток для обчислення кута
+            cos_angle = (vx * dx + vy * dy) / (speed * dist)
+            cos_angle = max(-1.0, min(1.0, cos_angle))
+            angle_deg = math.degrees(math.acos(cos_angle))
+
+            # Якщо ціль знаходиться попереду (кут < 35 градусів)
+            if angle_deg < 35.0:
+                # Оцінка: чим менший кут відхилення і чим ближче об'єкт за вектором, тим вища ймовірність
+                score = angle_deg * 2.0 + (dist / 1000.0)
+                if score < min_score:
+                    min_score = score
+                    best_asset = ci["name"]
+
+        return best_asset, min_score

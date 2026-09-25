@@ -1,18 +1,36 @@
 // frontend/src/types.ts
+
+export type DetectionStage = 'INITIAL_CONTACT' | 'TRACKED';
+
+export interface ActiveEvent {
+  id: number;
+  type: 'witness_call' | 'sensor_alert';
+  title: string;
+  message: string;
+  lat: number;
+  lon: number;
+  time: number;
+}
+
 export interface Track {
   id: string;
-  status?: 'CRUISING' | 'JAMMED' | 'CRASHED';
+  status?: 'CRUISING' | 'JAMMED' | 'CRASHED' | 'DETECTING';
+  detection_stage?: 'INITIAL_CONTACT' | 'TRACKED';
+  detection_count?: number;
+  last_sensor?: string;
+  detection_timeline?: string[];
+  kinematics_note?: string;
   lat: number;
   lon: number;
   alt: number;
-  speed: number;
-  heading: number;
-  predicted_30s: [number, number];
-  predicted_60s: [number, number];
-  crash_point: [number, number];
-  crash_safety?: number;
-  corridor_safety?: number;
-  impact_ellipse?: [number, number][];
+  speed: number | null;
+  heading: number | null;
+  predicted_30s?: [number, number] | null;
+  predicted_60s?: [number, number] | null;
+  crash_point?: [number, number] | null;
+  crash_safety?: number | null;
+  corridor_safety?: number | null;
+  impact_ellipse?: [number, number][] | null;
   is_safe_to_engage: boolean;
   is_ci_critical?: boolean;
   ci_distance?: number | null;
@@ -77,6 +95,7 @@ export interface TacticalUpdate {
   ew_nodes: EWNode[];
   zones: TacticalZone[];
   sensors: TacticalSensor[];
+  active_events?: ActiveEvent[];
   timestamp: number;
   simulation_active?: boolean;
   auto_tracking?: boolean;
