@@ -467,7 +467,7 @@ export const TacticalMap: React.FC<Props> = ({
 
   useEffect(() => {
     let cancelled = false;
-    const url = `http://${window.location.hostname}:8000/api/v1/risk/grid?limit=3000`;
+    const url = `http://${window.location.hostname}:8000/api/v1/risk/grid?limit=35000`;
     fetch(url).then((r) => r.json()).then((d) => {
       if (!cancelled && d && Array.isArray(d.cells)) setRiskCells(d.cells);
     }).catch(() => {});

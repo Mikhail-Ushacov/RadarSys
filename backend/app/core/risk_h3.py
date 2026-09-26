@@ -12,7 +12,7 @@ except Exception:
     h3 = None
 
 RES = 9
-GRID_RADIUS_M = 15000.0
+GRID_RADIUS_M = 30000.0
 W_POP = 0.30
 W_BLD = 0.22
 W_POI = 0.32
@@ -41,6 +41,21 @@ _max_r = 1
 _max_a = 1.0
 _max_poi = 1
 _max_g = 1.0
+_BLUR_RISKS: dict = {}
+
+
+def _blur_init(risks):
+    global _BLUR_RISKS
+    _BLUR_RISKS = risks
+
+
+def _blur_one(c):
+    try:
+        ring = h3.grid_disk(c, 1)
+    except Exception:
+        ring = [c]
+    vals = [_BLUR_RISKS[x] for x in ring if x in _BLUR_RISKS]
+    return c, sum(vals) / max(1, len(vals))
 
 
 def _ensure_h3():
@@ -274,14 +289,16 @@ def build_static_cells(lat: float, lon: float, r_m: float = GRID_RADIUS_M) -> Di
         cells[c]["poi"] = np_
         cells[c]["green"] = round(ag, 1)
         cells[c]["area"] = round(ar, 1)
-    blurred = {}
-    for c in cells:
-        try:
-            ring = h3.grid_disk(c, 1)
-        except Exception:
-            ring = [c]
-        vals = [cells[x]["static_risk"] for x in ring if x in cells]
-        blurred[c] = sum(vals) / max(1, len(vals))
+    risks = {c: info["static_risk"] for c, info in cells.items()}
+    global _BLUR_RISKS
+    _BLUR_RISKS = risks
+    try:
+        import os as _os
+        from multiprocessing import Pool as _Pool
+        with _Pool(processes=min(12, max(2, (_os.cpu_count() or 4))), initializer=_blur_init, initargs=(risks,)) as _pool:
+            blurred = dict(_pool.map(_blur_one, list(cells.keys()), chunksize=500))
+    except Exception:
+        blurred = dict(_blur_one(c) for c in cells)
     for c in cells:
         cells[c]["static_risk"] = blurred[c]
         cells[c]["safety"] = 1.0 - blurred[c]
@@ -484,14 +501,12 @@ def safety_at_enu(x: float, y: float, lat: float, lon: float,
     return max(0.02, min(0.98, s))
 
 
-def grid_for_frontend(limit: int = 3000) -> list:
+def grid_for_frontend(limit: int = 0) -> list:
     if not _loaded or not _cells:
         return []
-    items = sorted(_cells.items(), key=lambda kv: kv[1].get("safety", 0.5))
+    items = _cells.items() if limit <= 0 else list(_cells.items())[:limit]
     out = []
-    stride = max(1, len(items) // limit)
-    for i in range(0, len(items), stride):
-        c, info = items[i]
+    for c, info in items:
         try:
             b = h3.cell_to_boundary(c)
         except Exception:
@@ -507,6 +522,4 @@ def grid_for_frontend(limit: int = 3000) -> list:
             "why": _why(int(info.get("bld", 0)), int(info.get("road", 0)), float(info.get("area", 0.0)), int(info.get("poi", 0)), float(info.get("green", 0.0))),
             "boundary": [[p[0], p[1]] for p in b],
         })
-        if len(out) >= limit:
-            break
     return out

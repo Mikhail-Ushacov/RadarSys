@@ -18,7 +18,7 @@ if not os.path.exists(PBF):
 
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "osm_cache.json")
 RES = 9
-R_M = 15000.0
+R_M = 30000.0
 dlat = R_M / 111132.954
 dlon = R_M / (111412.84 * math.cos(math.radians(LAT0)))
 S, N, W, E = LAT0 - dlat, LAT0 + dlat, LON0 - dlon, LON0 + dlon
