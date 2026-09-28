@@ -5,7 +5,8 @@ import { TargetHUD } from './components/TargetHUD';
 import { TacticalObjectModal, EditableObject } from './components/TacticalObjectModal';
 import { InterceptionHistoryPage } from './components/InterceptionHistoryPage';
 import { TacticalUpdate, Track, EWNode, TacticalZone, TacticalSensor, DownedDroneDetailed } from './types';
-import { Map as MapIcon, History as HistoryIcon } from 'lucide-react';
+import { Map as MapIcon, History as HistoryIcon, Sun, Moon } from 'lucide-react';
+import { useTheme } from './theme';
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'map' | 'history'>('map');
@@ -33,6 +34,7 @@ export const App: React.FC = () => {
   });
 
   const draggingIdRef = useRef<string | null>(null);
+  const { dark, toggle } = useTheme();
   const lastDragTimeRef = useRef<number>(0);
   const recentlyMovedRef = useRef<Map<string, number>>(new Map());
 
@@ -302,6 +304,13 @@ export const App: React.FC = () => {
           >
             <HistoryIcon size={15} /> ЖУРНАЛ ЗБИТТІВ
             <span className="nav-tab-badge">{totalDownedCount}</span>
+          </button>
+          <button
+            className="nav-tab-btn"
+            onClick={toggle}
+            aria-label="theme"
+          >
+            {dark ? <Sun size={15} /> : <Moon size={15} />}
           </button>
         </div>
       </header>

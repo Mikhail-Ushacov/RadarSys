@@ -1,9 +1,86 @@
 @import "leaflet/dist/leaflet.css";
 
 :root {
-  font-family: 'JetBrains Mono', monospace, -apple-system, sans-serif;
-  background-color: #0b0f19;
-  color: #e2e8f0;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
+  --bg-base: #f8fafc;
+  --bg-raised: #ffffff;
+  --bg-sunken: #eef2f7;
+  --bg-overlay: #ffffff;
+
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text-1: #0f172a;
+  --text-2: #475569;
+  --text-3: #94a3b8;
+
+  --safe: #047857;
+  --safe-soft: #d1fae5;
+  --caution: #b45309;
+  --caution-soft: #fef3c7;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+  --info: #0369a1;
+  --info-soft: #e0f2fe;
+
+  --accent: #0284c7;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+
+  color-scheme: light;
+  font-family: var(--font-sans);
+  background-color: var(--bg-base);
+  color: var(--text-1);
+}
+
+.dark {
+  --bg-base: #0b0f19;
+  --bg-raised: #111827;
+  --bg-sunken: #070b14;
+  --bg-overlay: #111827;
+
+  --border: #1e293b;
+  --border-strong: #334155;
+
+  --text-1: #f8fafc;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
+
+  --safe: #34d399;
+  --safe-soft: #065f46;
+  --caution: #fbbf24;
+  --caution-soft: #78350f;
+  --danger: #f87171;
+  --danger-soft: #7f1d1d;
+  --info: #38bdf8;
+  --info-soft: #0f2744;
+
+  --accent: #38bdf8;
+
+  color-scheme: dark;
+}
+
+body, html, #root {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.t-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 body, html, #root {
