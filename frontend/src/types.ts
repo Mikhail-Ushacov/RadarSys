@@ -38,6 +38,7 @@ export interface Track {
   predicted_30s?: [number, number] | null;
   predicted_60s?: [number, number] | null;
   crash_point?: [number, number] | null;
+  debris_radius_m?: number | null;
   crash_safety?: number | null;
   corridor_safety?: number | null;
   impact_ellipse?: [number, number][] | null;
@@ -98,6 +99,8 @@ export interface DownedDroneDetailed {
   target_name: string;
   interceptor_name: string;
   crash_coords: string;
+  crash_lat: number;
+  crash_lon: number;
   crash_zone: string;
   debris_radius_m: number;
   emergency_112_called: boolean;
@@ -107,6 +110,7 @@ export interface DownedDroneDetailed {
 
 export interface TacticalUpdate {
   tracks: Track[];
+  ewNodes?: EWNode[];
   ew_nodes: EWNode[];
   zones: TacticalZone[];
   sensors: TacticalSensor[];

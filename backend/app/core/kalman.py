@@ -10,10 +10,11 @@ class DroneKalmanFilter:
     def __init__(self, x: float, y: float, z: float, tau: float = 8.0):
         self.tau = tau
         self.state = np.array([x, y, z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=float)
-        self.P = np.eye(9) * 50.0
+        self.P = np.eye(9) * 40.0
+        self.P[3:6, 3:6] *= 10.0
         self.P[6:, 6:] *= 2.0
-        self.R = np.eye(3) * 20.0
-        self.q_var = 1.5
+        self.R = np.eye(3) * 60.0
+        self.q_var = 0.4
         self.H = np.zeros((3, 9))
         self.H[0, 0] = 1.0
         self.H[1, 1] = 1.0
@@ -54,9 +55,13 @@ class DroneKalmanFilter:
         self.P = (np.eye(9) - K @ self.H) @ self.P
 
     def extrapolate(self, seconds: float) -> Tuple[float, float, float]:
-        x = self.state[0] + self.state[3]*seconds + 0.5*self.state[6]*seconds**2
-        y = self.state[1] + self.state[4]*seconds + 0.5*self.state[7]*seconds**2
-        z = self.state[2] + self.state[5]*seconds + 0.5*self.state[8]*seconds**2
+        """
+        Екстраполяція за стабільним фільтрованим вектором швидкості.
+        Усуває дикі ривки лінії від множення шуму прискорення на 0.5 * t^2 (450-1800x).
+        """
+        x = self.state[0] + self.state[3] * seconds
+        y = self.state[1] + self.state[4] * seconds
+        z = max(0.0, self.state[2] + self.state[5] * seconds)
         return x, y, z
 
     def pos_cov2d(self) -> np.ndarray:

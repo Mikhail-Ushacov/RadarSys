@@ -5,7 +5,7 @@ import {
   Polygon, Circle, Popup, useMapEvents 
 } from 'react-leaflet';
 import L from 'leaflet';
-import { Track, EWNode, TacticalZone, TacticalSensor, Emergency112Alert } from '../types';
+import { Track, EWNode, TacticalZone, TacticalSensor, DownedDroneDetailed, Emergency112Alert } from '../types';
 import { Navigation, Move, Edit3, Trash2, CheckCircle2, RotateCcw, X, Siren } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 import { Button } from './ui';
@@ -91,14 +91,14 @@ const icons = {
     if (status === 'CRASHED') {
       return L.divIcon({
         className: 'custom-drone-crashed',
-        html: `<div style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #991b1b; border: 2.5px solid #f87171; border-radius: 50%; box-shadow: 0 0 16px #ef4444;">
-                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5">
+        html: `<div style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: #991b1b; border: 2.5px solid #f87171; border-radius: 50%; box-shadow: 0 0 18px #ef4444;">
+                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.8">
                    <line x1="18" y1="6" x2="6" y2="18"></line>
                    <line x1="6" y1="6" x2="18" y2="18"></line>
                  </svg>
                </div>`,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17]
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
       });
     }
 
@@ -414,6 +414,7 @@ interface Props {
   ewNodes: EWNode[];
   zones: TacticalZone[];
   sensors: TacticalSensor[];
+  recentDowned?: DownedDroneDetailed[];
   emergency112Alert?: Emergency112Alert | null;
   isDrawingZone: boolean;
   drawingPoints: [number, number][];
@@ -435,7 +436,7 @@ interface Props {
 const MAP_KEY = (import.meta as any).env?.VITE_MAP_API_KEY || '';
 
 export const TacticalMap: React.FC<Props> = ({
-  dark, tracks, ewNodes, zones, sensors, emergency112Alert,
+  dark, tracks, ewNodes, zones, sensors, recentDowned = [], emergency112Alert,
   isDrawingZone, drawingPoints, onAddDrawingPoint, onFinishDrawingZone, onCancelDrawingZone, onUndoDrawingPoint,
   onMapClick, onDeleteZone, onDeleteSensor, onDeleteEW, onEditObject,
   onDragStart, onCommitMoveEW, onCommitMoveSensor, onCommitMoveZone
@@ -469,7 +470,7 @@ export const TacticalMap: React.FC<Props> = ({
 
   return (
     <div className={m.wrap}>
-      {/* ПОВІДОМЛЕННЯ ПРО ВИКЛИК 112 / ДСНС ПРИ ПАДІННІ В ЧЕРВОНУ/ПОМАРАНЧЕВУ ЗОНУ */}
+      {/* ПОВІДОМЛЕННЯ ПРО ВИКЛИК 112 / ДСНС */}
       {emergency112Alert && emergency112Alert.called && (
         <div style={{
           position: 'absolute',
@@ -498,7 +499,7 @@ export const TacticalMap: React.FC<Props> = ({
         </div>
       )}
 
-      {/* ПАНЕЛЬ УПРАВЛІННЯ РЕЖИМОМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ */}
+      {/* ПАНЕЛЬ МАЛЮВАННЯ ЗОНИ */}
       {isDrawingZone && (
         <div className={m.drawBar}>
           <div className={m.drawTitle}>
@@ -543,7 +544,6 @@ export const TacticalMap: React.FC<Props> = ({
           onMouseMove={(lat, lon) => setCursorCoords({ lat, lon })} 
         />
 
-        {/* ШАР ПЕРЕГЛЯДУ ГЕКСАГОНАЛЬНОЇ СІТКИ (ЯКЩО УВІМКНЕНО) */}
         {showRisk && riskCells.map((c) => (
           <Polygon
             key={`risk-${c.cell}`}
@@ -564,7 +564,7 @@ export const TacticalMap: React.FC<Props> = ({
           </Polygon>
         ))}
 
-        {/* ТАКТИЧНІ РАЙОНИ ТА ЗОНИ ВІЛЬНОЇ ФОРМИ З ПІДТРИМКОЮ ПЕРЕТЯГУВАННЯ */}
+        {/* ТАКТИЧНІ РАЙОНИ */}
         {zones.map((zone) => (
           <ZoneItem 
             key={`zone-${zone.id}`}
@@ -576,7 +576,7 @@ export const TacticalMap: React.FC<Props> = ({
           />
         ))}
 
-        {/* ПЕРЕДПРОГЛЯД ПОЛІГОНУ ТА ВЕРШИН, ЩО МАЛЮЮТЬСЯ */}
+        {/* ПОПЕРЕДНІЙ ПЕРЕГЛЯД ЗОНИ ПРИ МАЛЮВАННІ */}
         {isDrawingZone && drawingPoints.length > 0 && (
           <>
             <Polyline 
@@ -589,7 +589,7 @@ export const TacticalMap: React.FC<Props> = ({
           </>
         )}
 
-        {/* СЕНСОРИ З ПІДТРИМКОЮ ПЕРЕТЯГУВАННЯ */}
+        {/* СЕНСОРИ */}
         {sensors.map((sensor) => (
           <SensorMarkerItem
             key={`sensor-${sensor.id}`}
@@ -601,7 +601,7 @@ export const TacticalMap: React.FC<Props> = ({
           />
         ))}
 
-        {/* КОМПЛЕКСИ РЕБ З ПІДТРИМКОЮ ПЕРЕТЯГУВАННЯ */}
+        {/* КОМПЛЕКСИ РЕБ */}
         {ewNodes.map((node) => (
           <EWNodeMarkerItem
             key={`ew-${node.id}`}
@@ -613,57 +613,123 @@ export const TacticalMap: React.FC<Props> = ({
           />
         ))}
 
-        {/* ПОВІТРЯНІ ЦІЛІ (ВІДОБРАЖАЮТЬСЯ ТІЛЬКИ ПІСЛЯ ВИЯВЛЕННЯ) */}
+        {/* ЗБЕРЕЖЕНІ МІСЦЯ ЗБИТТЯ ДРОНІВ ТА ЇХНІ ЧЕРВОНІ КОЛА РОЗЛЬОТУ УЛАМКІВ */}
+        {recentDowned.map((d) => (
+          <React.Fragment key={`downed-site-${d.id}`}>
+            {/* ЯСКРАВЕ ЧЕРВОНЕ КОЛО РОЗЛЬОТУ УЛАМКІВ */}
+            <Circle
+              center={[d.crash_lat, d.crash_lon]}
+              radius={d.debris_radius_m || 140}
+              pathOptions={{
+                color: d.emergency_112_called ? '#ef4444' : '#10b981',
+                fillColor: d.emergency_112_called ? '#dc2626' : '#059669',
+                fillOpacity: 0.28,
+                weight: 2.5,
+                dashArray: '5, 5'
+              }}
+            />
+            {/* Епіцентр удару */}
+            <Circle
+              center={[d.crash_lat, d.crash_lon]}
+              radius={20}
+              pathOptions={{
+                color: '#ffffff',
+                fillColor: d.emergency_112_called ? '#b91c1c' : '#047857',
+                fillOpacity: 0.8,
+                weight: 2
+              }}
+            />
+            <Marker position={[d.crash_lat, d.crash_lon]} icon={icons.drone(0, 'CRASHED')}>
+              <Popup>
+                <div className={m.popup}>
+                  <strong className={m.toneDanger}>💥 МІСЦЕ ПАДІННЯ: {d.drone_id}</strong>
+                  <p>Тип БПЛА: <b>{d.drone_type}</b></p>
+                  <p>Час збиття: <b>{d.downed_time}</b></p>
+                  <p>Комплекс РЕБ: <b>{d.interceptor_name}</b></p>
+                  <p>Сектор: <b>{d.crash_zone}</b></p>
+                  <p>Радіус розльоту уламків: <b className="t-mono" style={{ color: '#ef4444' }}>~{d.debris_radius_m || 120} м</b></p>
+                  {d.emergency_112_called ? (
+                    <p style={{ color: '#ef4444', fontWeight: 700, margin: '6px 0 0 0' }}>
+                      🚨 Направлено рятувальні служби ДСНС / 112
+                    </p>
+                  ) : (
+                    <p style={{ color: '#10b981', fontWeight: 600, margin: '4px 0 0 0' }}>
+                      🟢 Падіння у Killbox (загрози людям немає)
+                    </p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          </React.Fragment>
+        ))}
+
+        {/* ПОВІТРЯНІ ЦІЛІ (АКТИВНИЙ ТРЕК) */}
         {tracks.map((target) => {
           const isInitialContact = target.detection_stage === 'INITIAL_CONTACT' || target.status === 'DETECTING';
+          const isCrashed = target.status === 'CRASHED';
 
           return (
             <React.Fragment key={`track-${target.id}`}>
+              {/* ЧЕРВОНЕ КОЛО РОЗЛЬОТУ УЛАМКІВ БІЛЯ АКТИВНОГО ЗБИТОГО ДРОНА */}
+              {isCrashed && (
+                <>
+                  <Circle
+                    center={[target.lat, target.lon]}
+                    radius={target.debris_radius_m || 160}
+                    pathOptions={{
+                      color: '#ef4444',
+                      fillColor: '#b91c1c',
+                      fillOpacity: 0.35,
+                      weight: 3,
+                      dashArray: '6, 6'
+                    }}
+                  />
+                  <Circle
+                    center={[target.lat, target.lon]}
+                    radius={22}
+                    pathOptions={{
+                      color: '#ffffff',
+                      fillColor: '#dc2626',
+                      fillOpacity: 0.85,
+                      weight: 2
+                    }}
+                  />
+                </>
+              )}
+
               <Marker 
                 position={[target.lat, target.lon]} 
                 icon={isInitialContact ? icons.droneUnknown() : icons.drone(target.heading ?? 0, target.status)}
               >
                 <Popup>
                   <div className={m.popup}>
-                    <strong className={isInitialContact ? m.toneCaution : target.status === 'CRASHED' ? m.toneDanger : m.toneInfo}>
-                      {target.id} — {target.drone_type || 'БПЛА'} {isInitialContact ? '⚠️ (1-Й КОНТАКТ)' : (target.status === 'CRASHED' ? '💥 (ЗБИТО)' : '🎯 (СУПРОВІД)')}
+                    <strong className={isInitialContact ? m.toneCaution : isCrashed ? m.toneDanger : m.toneInfo}>
+                      {target.id} — {target.drone_type || 'БПЛА'} {isInitialContact ? '⚠️ (1-Й КОНТАКТ)' : (isCrashed ? '💥 (ЗБИТО)' : '🎯 (СУПРОВІД)')}
                     </strong>
                     <p>Джерело: <b>{target.last_sensor || 'Сенсор'}</b></p>
                     <p>Швидкість: <b>{target.speed !== null ? `${(target.speed * 3.6).toFixed(0)} км/год` : 'НЕ РОЗРАХОВАНО (?)'}</b></p>
                     <p>Курс: <b>{target.heading !== null ? `${target.heading.toFixed(0)}°` : 'НЕ РОЗРАХОВАНО (?)'}</b></p>
+                    {isCrashed && (
+                      <p>Розліт уламків: <b className="t-mono" style={{ color: '#ef4444' }}>~{target.debris_radius_m || 160} м</b></p>
+                    )}
                     {isInitialContact && (
                       <p className={m.popupNote}>
-                        Очікується 2-й контакт (камера/мікрофон/МВГ) для визначення кінематики польоту
+                        Очікується 2-й контакт (камера/мікрофон/МВГ) для розрахунку вектора польоту
                       </p>
                     )}
-                    {target.crash_safety !== null && target.crash_safety !== undefined && (
+                    {target.crash_safety !== null && target.crash_safety !== undefined && !isCrashed && (
                       <p>Безпека падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>
                     )}
                   </div>
                 </Popup>
               </Marker>
 
-              {/* РОЗЛІТ УЛАМКІВ ПРИ ЗБИТТІ ТА ЗОНА ВИКЛИКУ 112 */}
-              {target.status === 'CRASHED' && (
-                <Circle
-                  center={[target.lat, target.lon]}
-                  radius={160}
-                  pathOptions={{
-                    color: '#ef4444',
-                    fillColor: '#b91c1c',
-                    fillOpacity: 0.35,
-                    weight: 2,
-                    dashArray: '4, 4'
-                  }}
-                />
-              )}
-
-              {/* Прогнозований вектор та еліпс падіння */}
-              {!isInitialContact && target.status !== 'CRASHED' && target.predicted_30s && target.predicted_60s && (
+              {/* ПЛАВНА ПУНКТИРНА ЛІНІЯ НАПРЯМКУ РУХУ ДО ЦІЛІ */}
+              {!isInitialContact && !isCrashed && target.predicted_30s && target.predicted_60s && (
                 <>
                   <Polyline 
                     positions={[[target.lat, target.lon], target.predicted_30s, target.predicted_60s]} 
-                    pathOptions={{ color: target.status === 'JAMMED' ? '#f59e0b' : '#fbbf24', dashArray: '4, 8', weight: 2 }} 
+                    pathOptions={{ color: target.status === 'JAMMED' ? '#f59e0b' : '#38bdf8', dashArray: '5, 8', weight: 2.5 }} 
                   />
                   {target.impact_ellipse && target.impact_ellipse.length >= 3 && (
                     <Polygon
@@ -671,7 +737,7 @@ export const TacticalMap: React.FC<Props> = ({
                       pathOptions={{
                         color: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
                         fillColor: target.is_ci_critical ? '#dc2626' : (target.is_safe_to_engage ? '#10b981' : '#ef4444'),
-                        fillOpacity: 0.35,
+                        fillOpacity: 0.32,
                         weight: target.is_ci_critical ? 3 : 1.5
                       }}
                     />
@@ -690,7 +756,7 @@ export const TacticalMap: React.FC<Props> = ({
         </Button>
       </div>
 
-      {/* ТАКТИЧНА ЛЕГЕНДА ЗОН БЕЗПЕКИ */}
+      {/* ТАКТИЧНА ЛЕГЕНДА */}
       <div className={m.legend}>
         <div className={m.legendTitle}>ТАКТИЧНІ РАЙОНИ:</div>
         <div className={m.legendRow}>

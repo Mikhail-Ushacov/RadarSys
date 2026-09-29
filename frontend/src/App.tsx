@@ -328,6 +328,7 @@ export const App: React.FC = () => {
               ewNodes={ewNodes} 
               zones={zones}
               sensors={sensors}
+              recentDowned={recentDowned}
               isDrawingZone={isDrawingZone}
               drawingPoints={drawingPoints}
               onAddDrawingPoint={handleAddDrawingPoint}
