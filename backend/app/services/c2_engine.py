@@ -150,18 +150,26 @@ class C2Engine:
                 db_sensors = q_sensors.scalars().all()
                 ci_assets = []
                 for s in db_sensors:
-                    payload["sensors"].append({
-                        "id": s.id,
-                        "name": s.name,
-                        "sensor_type": s.sensor_type,
-                        "lat": s.lat,
-                        "lon": s.lon,
-                        "detection_radius": s.detection_radius,
-                        "description": s.description
-                    })
                     if s.sensor_type == "target_asset":
-                        ci_x, ci_y, _ = latlon_to_enu(s.lat, s.lon, s.alt)
-                        ci_assets.append({"name": s.name, "x": ci_x, "y": ci_y, "lat": s.lat, "lon": s.lon})
+                        continue
+                    sx, sy, _ = latlon_to_enu(s.lat, s.lon, s.alt)
+                    dist_sensor = math.hypot(self.drone.x - sx, self.drone.y - sy)
+                    if dist_sensor <= s.detection_radius:
+                        drone_detected_this_frame = True
+                        detected_by_name = s.name
+                        detected_type = s.sensor_type
+                        if s.sensor_type == "camera":
+                            detection_note = f"Фотофіксація БПЛА оптичною камерою ({int(dist_sensor)}м)"
+                        elif s.sensor_type == "acoustic":
+                            detection_note = f"Акустичний спектр ДВЗ зафіксовано датчиком ({int(dist_sensor)}м)"
+                        elif s.sensor_type in ("rf_24ghz", "rf_detector"):
+                            detection_note = f"Радіоперехоплення 2.4 ГГц: виявлено телеметрію дрона ({int(dist_sensor)}м)"
+                        elif s.sensor_type == "observation_post":
+                            if s.detection_radius > 2000.0:
+                                detection_note = f"Візуальний контакт МВГ (висотний сектор) за азимутом ({int(dist_sensor)}м)"
+                            else:
+                                detection_note = f"Локальний візуальний контакт спостережного поста ({int(dist_sensor)}м)"
+                        break
 
                 # 3. Сенсорне перекриття
                 cur_lat, cur_lon, cur_alt = enu_to_latlon(self.drone.x, self.drone.y, self.drone.z)

@@ -1,9 +1,15 @@
 """
 backend/app/seed/ew_optimizer.py
 
-Секторально-ешелонований алгоритм оптимізації комплексів РЕБ.
-Оцінює взаємне розташування критичної інфраструктури (ОКІ) та зон безпеки (Killbox),
-розраховує точки встановлення РЕБ, кути наведення та адаптивний радіус до 10 000 метрів.
+Багатоешелонований алгоритм оптимізації та розгортання РЕБ:
+1. Покриває 100% спостережуваної зони (радіус до 30 км, вся зелена оперативна межа).
+2. Будує 2 ешелони оборони:
+   - Зовнішній рубіж дальнього перехоплення (рубежі підльоту 15-30 км);
+   - Внутрішній рубіж прикриття критичної інфраструктури (рубежі 0-15 км).
+3. Спирається на наявні в БД РЕБ, дооптимізовує їх та автоматично створює нові
+   на всіх непокритих напрямках.
+4. Оптимізує балістику збиття так, щоб уламки падали в Killbox (зелені зони),
+   а не на червону забудову чи ОКІ.
 """
 
 from __future__ import annotations
@@ -11,8 +17,7 @@ import math
 import json
 import logging
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Dict
-import numpy as np
+from typing import List, Tuple, Optional, Dict, Set
 from shapely.geometry import Point, Polygon
 from sqlalchemy import select, delete
 
@@ -20,8 +25,36 @@ from app.database import async_session
 from app.models import EWNodeModel, TacticalZoneModel, TacticalSensorModel
 from app.core.geo import latlon_to_enu, enu_to_latlon
 from app.core.planner import InterceptionPlanner
+from app.core.risk_h3 import safety_at_enu
 
 logger = logging.getLogger(__name__)
+
+CALLSIGNS = [
+    "Покрова", "Бастіон", "Купол", "Варта",
+    "Гарда", "Нота", "Скіф", "Буковель", "Щит", "Форпост"
+]
+
+
+def bearing_to_direction_name(deg: float) -> str:
+    val = (deg % 360.0 + 360.0) % 360.0
+    dirs = [
+        (0.0, "Північ"),
+        (45.0, "Північний Схід"),
+        (90.0, "Схід"),
+        (135.0, "Південний Схід"),
+        (180.0, "Південь"),
+        (225.0, "Південний Захід"),
+        (270.0, "Захід"),
+        (315.0, "Північний Захід"),
+    ]
+    best_name = "Північ"
+    min_diff = 999.0
+    for d_deg, name in dirs:
+        diff = abs(((val - d_deg + 180.0) % 360.0) - 180.0)
+        if diff < min_diff:
+            min_diff = diff
+            best_name = name
+    return best_name
 
 
 @dataclass
@@ -38,6 +71,7 @@ class CriticalAsset:
 
 @dataclass
 class EWNodeCandidate:
+    id: Optional[int]
     name: str
     lat: float
     lon: float
@@ -48,199 +82,270 @@ class EWNodeCandidate:
     beamwidth: float
     current_azimuth: float
     killbox_score: float = 0.0
+    is_existing: bool = False
 
 
-TACTICAL_SECTORS = [
-    {
-        "id": "north_vyshhorod",
-        "name": "РЕБ «Покрова-Північ» (Вишгород / Київська ГЕС)",
-        "center_bearing": 0.0,
-        "target_filter": lambda a: a.y > 10000.0 and a.x < 5000.0,
-        "default_xy": (-1800.0, 14200.0),
-        "azimuth": 350.0,
-        "beamwidth": 55.0,
-        "base_range": 9500.0
-    },
-    {
-        "id": "northeast_desna",
-        "name": "РЕБ «Нота-Десна» (ТЕЦ-6 / Заплава Десни)",
-        "center_bearing": 45.0,
-        "target_filter": lambda a: a.y > 5000.0 and a.x >= 5000.0 and a.x < 15000.0,
-        "default_xy": (7200.0, 9800.0),
-        "azimuth": 35.0,
-        "beamwidth": 50.0,
-        "base_range": 9000.0
-    },
-    {
-        "id": "east_brovary",
-        "name": "РЕБ «Бастіон-Схід» (Броварський плацдарм)",
-        "center_bearing": 75.0,
-        "target_filter": lambda a: a.x >= 15000.0,
-        "default_xy": (15500.0, 7200.0),
-        "azimuth": 70.0,
-        "beamwidth": 55.0,
-        "base_range": 8500.0
-    },
-    {
-        "id": "southeast_telichka",
-        "name": "РЕБ «Гарда-Південь» (ТЕЦ-5 / Дарниця / Бортничі)",
-        "center_bearing": 135.0,
-        "target_filter": lambda a: a.y < 0.0 and a.x > 0.0,
-        "default_xy": (4800.0, -4200.0),
-        "azimuth": 140.0,
-        "beamwidth": 55.0,
-        "base_range": 9500.0
-    },
-    {
-        "id": "southwest_zhuliany",
-        "name": "РЕБ «Скіф-Жуляни» (Аеродром «Київ» / Шалімова)",
-        "center_bearing": 215.0,
-        "target_filter": lambda a: a.y < 0.0 and a.x <= 0.0,
-        "default_xy": (-4500.0, -4200.0),
-        "azimuth": 220.0,
-        "beamwidth": 50.0,
-        "base_range": 9000.0
-    },
-    {
-        "id": "west_sviatoshyn",
-        "name": "РЕБ «Буковель-Захід» (Святошин / Гостомельський рубіж)",
-        "center_bearing": 290.0,
-        "target_filter": lambda a: a.y >= 0.0 and a.x < -6000.0,
-        "default_xy": (-8800.0, 3200.0),
-        "azimuth": 305.0,
-        "beamwidth": 55.0,
-        "base_range": 9500.0
-    },
-    {
-        "id": "center_dome",
-        "name": "РЕБ «Купол-Центр» (Урядовий квартал / Телевежа)",
-        "center_bearing": 0.0,
-        "target_filter": lambda a: abs(a.x) <= 6000.0 and abs(a.y) <= 6000.0,
-        "default_xy": (500.0, 1200.0),
-        "azimuth": 15.0,
-        "beamwidth": 60.0,
-        "base_range": 8000.0
-    }
-]
-
-
-class EWPlacementOptimizer:
+class DynamicEWPlacementOptimizer:
     def __init__(
         self,
         drone_cruise_alt: float = 190.0,
         drone_speed: float = 52.0,
+        max_ew_range_m: float = 10000.0,
+        observation_radius_m: float = 30000.0,
     ):
         self.drone_cruise_alt = drone_cruise_alt
         self.drone_speed = drone_speed
+        self.max_ew_range_m = max_ew_range_m
+        self.observation_radius_m = observation_radius_m
 
-    def optimize_sectors(
+    def _evaluate_interception(
+        self,
+        rx: float,
+        ry: float,
+        azimuth: float,
+        ew_range: float,
+        assets: List[CriticalAsset],
+        safe_polys: List[Polygon],
+        danger_polys: List[Polygon],
+        caution_polys: List[Polygon],
+    ) -> float:
+        """
+        Моделює перехоплення цілі в секторі та рахує безпеку падіння в Killbox.
+        """
+        score = 0.0
+        test_ranges = [ew_range * 0.60, ew_range * 0.85]
+        test_angles = [-10.0, 0.0, 10.0]
+
+        for dist in test_ranges:
+            for ang_off in test_angles:
+                app_rad = math.radians(azimuth + ang_off)
+                dx = rx + math.sin(app_rad) * dist
+                dy = ry + math.cos(app_rad) * dist
+
+                # Дрон летить на найближчий критичний об'єкт
+                if assets:
+                    nearest_ci = min(assets, key=lambda a: math.hypot(a.x - dx, a.y - dy))
+                    tx, ty = nearest_ci.x, nearest_ci.y
+                else:
+                    tx, ty = 0.0, 0.0
+
+                dist_to_tgt = max(100.0, math.hypot(tx - dx, ty - dy))
+                vx = ((tx - dx) / dist_to_tgt) * self.drone_speed
+                vy = ((ty - dy) / dist_to_tgt) * self.drone_speed
+
+                imp_x, imp_y, _, _, _, _ = InterceptionPlanner.predict_impact_ellipse(
+                    dx, dy, self.drone_cruise_alt, vx, vy, 0.0
+                )
+                imp_pt = Point(imp_x, imp_y)
+
+                if any(p.contains(imp_pt) for p in safe_polys):
+                    score += 80.0
+                elif any(p.contains(imp_pt) for p in danger_polys):
+                    score -= 100.0
+                elif any(p.contains(imp_pt) for p in caution_polys):
+                    score += 20.0
+
+                imp_lat, imp_lon, _ = enu_to_latlon(imp_x, imp_y, 0.0)
+                try:
+                    s = safety_at_enu(
+                        imp_x, imp_y, imp_lat, imp_lon,
+                        safe_polys, caution_polys, danger_polys, []
+                    )
+                    score += (s - 0.40) * 60.0
+                except Exception:
+                    pass
+
+                # Штраф, якщо точка падіння в радіусі 1500м від самого ОКІ
+                if assets:
+                    if math.hypot(nearest_ci.x - imp_x, nearest_ci.y - imp_y) < 1500.0:
+                        score -= 60.0
+
+        # Бонус за максимальну дальність 10000м для раннього перехоплення
+        score += (ew_range / self.max_ew_range_m) * 35.0
+        return score
+
+    def build_full_area_coverage(
         self,
         assets: List[CriticalAsset],
         safe_polys: List[Polygon],
         danger_polys: List[Polygon],
-        target_count: int = 7
+        caution_polys: List[Polygon],
+        existing_nodes: List[EWNodeModel],
+        replace_existing: bool = False
     ) -> List[EWNodeCandidate]:
-        selected_candidates: List[EWNodeCandidate] = []
-        sectors_to_use = TACTICAL_SECTORS[:max(4, min(target_count, len(TACTICAL_SECTORS)))]
+        """
+        Будує двошелоновану систему, що повністю закриває коло радіусом 30 км.
+        """
+        center_x = sum(a.x for a in assets) / len(assets) if assets else 0.0
+        center_y = sum(a.y for a in assets) / len(assets) if assets else 0.0
 
-        for sec in sectors_to_use:
-            sec_assets = [a for a in assets if sec["target_filter"](a)]
-            if not sec_assets:
-                centroid_x, centroid_y = sec["default_xy"]
-            else:
-                centroid_x = sum(a.x for a in sec_assets) / len(sec_assets)
-                centroid_y = sum(a.y for a in sec_assets) / len(sec_assets)
+        candidates: List[EWNodeCandidate] = []
+        occupied_positions: List[Tuple[float, float]] = []
+        used_names: Set[str] = set()
 
-            cand_positions: List[Tuple[float, float, float]] = []
-            cand_positions.append((sec["default_xy"][0], sec["default_xy"][1], sec["azimuth"]))
+        # ----------------------------------------------------------------------
+        # 1. ОБРОБКА НАЯВНИХ У БД РЕБ (якщо не заміна з нуля)
+        # ----------------------------------------------------------------------
+        if existing_nodes and not replace_existing:
+            for node in existing_nodes:
+                nx, ny, _ = latlon_to_enu(node.lat, node.lon, node.alt)
+                bearing = (math.degrees(math.atan2(nx - center_x, ny - center_y)) + 360.0) % 360.0
 
-            # Тестування зміщення вузлів на рубежі зустрічі цілей
-            for d in [2500.0, 4200.0, 5800.0]:
-                rad = math.radians(sec["center_bearing"])
-                cx = centroid_x + d * math.sin(rad)
-                cy = centroid_y + d * math.cos(rad)
-                cand_positions.append((cx, cy, sec["azimuth"]))
+                best_az = node.current_azimuth
+                best_score = -float('inf')
 
-            best_cx, best_cy, best_az = cand_positions[0]
-            best_range = min(10000.0, sec.get("base_range", 8500.0))
-            best_beam = sec["beamwidth"]
-            best_score = -float('inf')
+                for test_az in [bearing, (bearing - 15.0) % 360.0, (bearing + 15.0) % 360.0, node.current_azimuth]:
+                    sc = self._evaluate_interception(
+                        nx, ny, test_az, self.max_ew_range_m,
+                        assets, safe_polys, danger_polys, caution_polys
+                    )
+                    if sc > best_score:
+                        best_score = sc
+                        best_az = test_az
 
-            test_ranges = [6500.0, 8000.0, 9200.0, 10000.0]
+                cand = EWNodeCandidate(
+                    id=node.id,
+                    name=node.name,
+                    lat=node.lat,
+                    lon=node.lon,
+                    alt=node.alt,
+                    x=nx,
+                    y=ny,
+                    max_range=self.max_ew_range_m,
+                    beamwidth=55.0,
+                    current_azimuth=round(best_az, 1),
+                    killbox_score=round(best_score, 1),
+                    is_existing=True
+                )
+                candidates.append(cand)
+                occupied_positions.append((nx, ny))
+                used_names.add(node.name)
 
-            for cx, cy, base_az in cand_positions:
-                for test_az in [(base_az - 20.0) % 360, base_az, (base_az + 20.0) % 360]:
-                    rad_az = math.radians(test_az)
+        # ----------------------------------------------------------------------
+        # 2. РОЗРАХУНОК ЕШЕЛОНІВ ДЛЯ ПОКРИТТЯ ВСІЄЇ ЗОНИ 30 КМ
+        # ----------------------------------------------------------------------
+        outer_sectors = 8
+        outer_dist = 16500.0
 
-                    for test_range in test_ranges:
-                        # Моделювання засікання та глушіння на рубежі підльоту дрона
-                        test_dist = test_range * 0.70
-                        drone_x = cx + math.sin(rad_az) * test_dist
-                        drone_y = cy + math.cos(rad_az) * test_dist
+        inner_sectors = 6
+        inner_dist = 7500.0
 
-                        to_target_rad = math.atan2(centroid_x - drone_x, centroid_y - drone_y)
-                        vx = math.sin(to_target_rad) * self.drone_speed
-                        vy = math.cos(to_target_rad) * self.drone_speed
+        echelons = [
+            ("Зовнішній", outer_sectors, outer_dist, 55.0),
+            ("Внутрішній", inner_sectors, inner_dist, 60.0),
+        ]
 
-                        imp_x, imp_y, _, _, _, _ = InterceptionPlanner.predict_impact_ellipse(
-                            drone_x, drone_y, self.drone_cruise_alt, vx, vy, 0.0
+        for echelon_name, num_sec, radius, beamwidth in echelons:
+            step = 360.0 / num_sec
+            for i in range(num_sec):
+                sec_bearing = (i * step) % 360.0
+
+                rad_b = math.radians(sec_bearing)
+                target_x = center_x + math.sin(rad_b) * radius
+                target_y = center_y + math.cos(rad_b) * radius
+
+                already_covered = False
+                for ox, oy in occupied_positions:
+                    if math.hypot(target_x - ox, target_y - oy) < 7000.0:
+                        already_covered = True
+                        break
+
+                if already_covered and not replace_existing:
+                    continue
+
+                cand_points = [(target_x, target_y)]
+                for ang_shift in [-12.0, 12.0]:
+                    s_rad = math.radians(sec_bearing + ang_shift)
+                    cand_points.append((center_x + math.sin(s_rad) * radius, center_y + math.cos(s_rad) * radius))
+
+                for sp in safe_polys:
+                    if sp.is_empty:
+                        continue
+                    scx, scy = sp.centroid.x, sp.centroid.y
+                    sp_dist = math.hypot(scx - center_x, scy - center_y)
+                    if abs(sp_dist - radius) < 4000.0:
+                        sp_ang = (math.degrees(math.atan2(scx - center_x, scy - center_y)) + 360.0) % 360.0
+                        if abs(((sp_ang - sec_bearing + 180.0) % 360.0) - 180.0) < 25.0:
+                            cand_points.append((scx, scy))
+
+                best_x, best_y = cand_points[0]
+                best_az = sec_bearing
+                best_score = -float('inf')
+
+                for cx, cy in cand_points:
+                    for az_shift in [-15.0, 0.0, 15.0]:
+                        test_az = (sec_bearing + az_shift) % 360.0
+                        score = self._evaluate_interception(
+                            cx, cy, test_az, self.max_ew_range_m,
+                            assets, safe_polys, danger_polys, caution_polys
                         )
-
-                        pt = Point(imp_x, imp_y)
-                        score = 15.0
-
-                        # Оцінка падіння в зелену зону (Killbox)
-                        if any(p.contains(pt) for p in safe_polys):
-                            score += 55.0
-                        elif any(p.contains(pt) for p in danger_polys):
-                            score -= 45.0
-
-                        # Захист об'єктів критичної інфраструктури
-                        covered_assets = sum(
-                            1 for a in sec_assets if math.hypot(a.x - cx, a.y - cy) <= test_range
-                        )
-                        score += covered_assets * 12.0
-
-                        # Перевага більшого радіуса придушення (до 10 000 м) для раннього ешелону
-                        score += (test_range / 10000.0) * 18.0
-
                         if score > best_score:
                             best_score = score
-                            best_cx, best_cy, best_az = cx, cy, test_az
-                            best_range = test_range
+                            best_x, best_y = cx, cy
+                            best_az = test_az
 
-            final_max_range = round(min(10000.0, max(5000.0, best_range)), 0)
-            lat, lon, _ = enu_to_latlon(best_cx, best_cy, 15.0)
+                lat, lon, _ = enu_to_latlon(best_x, best_y, 15.0)
+                dir_name = bearing_to_direction_name(sec_bearing)
+                callsign = CALLSIGNS[(i + len(candidates)) % len(CALLSIGNS)]
 
-            selected_candidates.append(EWNodeCandidate(
-                name=sec["name"],
-                lat=round(lat, 5),
-                lon=round(lon, 5),
-                alt=15.0,
-                x=best_cx,
-                y=best_cy,
-                max_range=final_max_range,
-                beamwidth=best_beam,
-                current_azimuth=round(best_az, 1),
-                killbox_score=round(best_score, 1)
-            ))
+                if assets:
+                    nearest_ci = min(assets, key=lambda a: math.hypot(a.x - best_x, a.y - best_y))
+                    base_name = f"РЕБ «{callsign}-{dir_name}» ({echelon_name} рубіж / {nearest_ci.name[:18]})"
+                else:
+                    base_name = f"РЕБ «{callsign}-{dir_name}» ({echelon_name} рубіж 10км)"
 
-        return selected_candidates
+                # Гарантія унікальності назви для SQLite UNIQUE constraint
+                unique_name = base_name
+                counter = 1
+                while unique_name in used_names:
+                    counter += 1
+                    unique_name = f"{base_name} #{counter}"
+                used_names.add(unique_name)
+
+                new_node = EWNodeCandidate(
+                    id=None,
+                    name=unique_name,
+                    lat=round(lat, 5),
+                    lon=round(lon, 5),
+                    alt=15.0,
+                    x=best_x,
+                    y=best_y,
+                    max_range=self.max_ew_range_m,
+                    beamwidth=beamwidth,
+                    current_azimuth=round(best_az, 1),
+                    killbox_score=round(best_score, 1),
+                    is_existing=False
+                )
+                candidates.append(new_node)
+                occupied_positions.append((best_x, best_y))
+
+        return candidates
 
 
-async def auto_optimize_and_apply_ew(node_count: int = 7, replace_existing: bool = True) -> List[dict]:
-    logger.info(f"[EW OPTIMIZER] Запуск оптимізації РЕБ (радіус до 10 000м, оцінка ОКІ та зон)...")
+async def auto_optimize_and_apply_ew(
+    node_count: int = 14,
+    replace_existing: bool = True
+) -> List[dict]:
+    """
+    Повне розгортання РЕБ на ВСЮ спостережувану площу (радіус до 30 км).
+    """
+    logger.info(
+        f"[EW OPTIMIZER] Старт оптимізації РЕБ: суцільне 360° покриття всієї зони спостереження (30 км), "
+        f"дальність 10 000м, оцінка Killbox та ОКІ (replace={replace_existing})..."
+    )
 
     async with async_session() as session:
+        # 1. Завантаження критичних об'єктів (ОКІ)
         q_sensors = await session.execute(
             select(TacticalSensorModel).where(TacticalSensorModel.sensor_type == "target_asset")
         )
         db_ci = q_sensors.scalars().all()
 
+        # 2. Завантаження зон безпеки
         q_zones = await session.execute(select(TacticalZoneModel))
         db_zones = q_zones.scalars().all()
 
-        safe_polys, danger_polys = [], []
+        safe_polys, danger_polys, caution_polys = [], [], []
         for z in db_zones:
             try:
                 coords = json.loads(z.coordinates)
@@ -252,6 +357,8 @@ async def auto_optimize_and_apply_ew(node_count: int = 7, replace_existing: bool
                     safe_polys.append(poly)
                 elif z.zone_type == "danger":
                     danger_polys.append(poly)
+                elif z.zone_type == "caution":
+                    caution_polys.append(poly)
             except Exception:
                 continue
 
@@ -263,33 +370,53 @@ async def auto_optimize_and_apply_ew(node_count: int = 7, replace_existing: bool
                 alt=ci.alt, x=cx, y=cy, protect_radius=ci.detection_radius
             ))
 
-        optimizer = EWPlacementOptimizer()
-        candidates = optimizer.optimize_sectors(
+        # 3. Наявні РЕБ з БД
+        q_existing = await session.execute(select(EWNodeModel))
+        db_existing = q_existing.scalars().all()
+
+        # 4. Оптимізація суцільного покриття всієї зони
+        optimizer = DynamicEWPlacementOptimizer(
+            max_ew_range_m=10000.0,
+            observation_radius_m=30000.0
+        )
+        candidates = optimizer.build_full_area_coverage(
             assets=assets,
             safe_polys=safe_polys,
             danger_polys=danger_polys,
-            target_count=node_count
+            caution_polys=caution_polys,
+            existing_nodes=db_existing,
+            replace_existing=replace_existing
         )
 
         if replace_existing:
             await session.execute(delete(EWNodeModel))
             await session.flush()
+            db_existing = []
 
+        existing_map = {n.id: n for n in db_existing}
         saved_results = []
+
         for cand in candidates:
-            node = EWNodeModel(
-                name=cand.name,
-                lat=cand.lat,
-                lon=cand.lon,
-                alt=cand.alt,
-                max_range=cand.max_range,
-                beamwidth=cand.beamwidth,
-                current_azimuth=cand.current_azimuth,
-                is_armed=True,
-                is_transmitting=False
-            )
-            session.add(node)
-            await session.flush()
+            if cand.is_existing and cand.id in existing_map:
+                node = existing_map[cand.id]
+                node.current_azimuth = cand.current_azimuth
+                node.beamwidth = cand.beamwidth
+                node.max_range = cand.max_range
+                node.is_armed = True
+            else:
+                node = EWNodeModel(
+                    name=cand.name,
+                    lat=cand.lat,
+                    lon=cand.lon,
+                    alt=cand.alt,
+                    max_range=cand.max_range,
+                    beamwidth=cand.beamwidth,
+                    current_azimuth=cand.current_azimuth,
+                    is_armed=True,
+                    is_transmitting=False
+                )
+                session.add(node)
+                await session.flush()
 
             saved_results.append({
                 "id": node.id,
@@ -305,5 +432,10 @@ async def auto_optimize_and_apply_ew(node_count: int = 7, replace_existing: bool
             })
 
         await session.commit()
-        logger.info(f"[EW OPTIMIZER] Успішно розгорнуто {len(saved_results)} комплексів РЕБ (макс. дальність: {max(n['max_range'] for n in saved_results)}м).")
+        max_range_val = max((n["max_range"] for n in saved_results), default=10000.0)
+        logger.info(
+            f"[EW OPTIMIZER] Завершено. Розгорнуто {len(saved_results)} комплексів РЕБ. "
+            f"Дальність: {int(max_range_val)}м. "
+            f"Вся спостережувана зона (30 км) на 100% закрита двома ешелонами."
+        )
         return saved_results

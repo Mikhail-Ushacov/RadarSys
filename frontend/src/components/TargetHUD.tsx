@@ -4,7 +4,7 @@ import {
   Crosshair, Zap, Plus, Camera, Mic,
   Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3,
   Play, Square, RotateCcw, Compass,
-  AlertOctagon, History, ArrowRight, PenTool, Users
+  AlertOctagon, History, ArrowRight, PenTool, Users, Radio
 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 import { Button } from './ui/Button';
@@ -267,6 +267,7 @@ export const TargetHUD: React.FC<Props> = ({
               {s.sensor_type === 'observation_post' && <Eye size={16} />}
               {s.sensor_type === 'target_asset' && <Target size={16} />}
               {s.sensor_type === 'witness_report' && <Users size={16} />}
+              {s.sensor_type === 'rf_24ghz' && <Radio size={16} color="var(--info)" />}
               <div className={`${styles.cardBody} ${styles.grow}`}>
                 <div className={styles.strong}>{s.name}</div>
                 <div>R: <span className="t-mono">{s.detection_radius}м</span> {s.description ? `• ${s.description}` : ''}</div>

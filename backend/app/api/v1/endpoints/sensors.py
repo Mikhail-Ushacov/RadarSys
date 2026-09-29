@@ -5,6 +5,7 @@ from sqlalchemy import select, delete
 from app.database import async_session
 from app.models import TacticalSensorModel
 from app.schemas import TacticalSensorCreate, TacticalSensorUpdate
+from app.seed.settlement_sensors import seed_settlement_sensors
 
 router = APIRouter(prefix="/sensors", tags=["sensors"])
 
@@ -50,3 +51,8 @@ async def update_tactical_sensor(sensor_id: int, update: TacticalSensorUpdate):
 
         await session.commit()
         return {"status": "updated", "id": sensor.id}
+
+@router.post("/seed_settlement_sensors")
+async def trigger_seed_settlement_sensors(replace: bool = True):
+    stats = await seed_settlement_sensors(replace_existing=replace)
+    return {"status": "success", "details": stats}

@@ -13,12 +13,12 @@ from app.seed.ew_optimizer import auto_optimize_and_apply_ew
 from app.services.c2_engine import c2_engine
 from app.services.connection_manager import ws_manager
 from app.api.v1.router import api_v1_router
+from app.seed.settlement_sensors import seed_settlement_sensors
 
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Ініціалізація бази даних та сітки H3
     await init_db()
     try:
         ok = risk_load_grid()
@@ -26,19 +26,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("risk_h3 load failed: %s", e)
 
-    # 2. Автоматичний пошук і завантаження ОКІ та тактичних зон із дата-файлів
     try:
         logger.info("[INIT] Завантаження критичної інфраструктури та зон із дата-файлів...")
         await seed_from_data_files(force_reload=True)
     except Exception as e:
         logger.error("[INIT] Помилка завантаження даних із data/: %s", e)
 
-    # 3. Автоматичний запуск оптимізації РЕБ з оцінкою ОКІ/Killbox та радіусом до 10000м
+    # 2. ДОДАЙТЕ ЦЕЙ БЛОК:
     try:
-        logger.info("[INIT] Оцінка ОКІ та зон: запуск оптимізації розташування РЕБ (радіус до 10000м)...")
-        await auto_optimize_and_apply_ew(node_count=7, replace_existing=True)
+        logger.info("[INIT] Генерація та розстановка датчиків у населених пунктах...")
+        await seed_settlement_sensors(replace_existing=True)
     except Exception as e:
-        logger.error("[INIT] Помилка оптимізації РЕБ при старті: %s", e)
+        logger.error("[INIT] Помилка розгортання датчиків: %s", e)
+
+    try:
+        logger.info("[INIT] Розгортання РЕБ на всю зону (30 км)...")
+        await auto_optimize_and_apply_ew(node_count=14, replace_existing=True)
+    except Exception as e:
+        logger.error("[INIT] Помилка оптимізації РЕБ: %s", e)
 
     # 4. Фонові цикли:
     #   - C2 Engine (супровід дронів та бойова робота)

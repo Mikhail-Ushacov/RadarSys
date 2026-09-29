@@ -63,6 +63,7 @@ export interface TacticalZone {
 export type SensorType = 
   | 'camera' 
   | 'acoustic' 
+  | 'rf_24ghz'
   | 'observation_post' 
   | 'witness_report' 
   | 'target_asset';

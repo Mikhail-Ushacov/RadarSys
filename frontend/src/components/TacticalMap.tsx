@@ -139,6 +139,10 @@ const icons = {
     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
     '#450a0a', '#ef4444'
   ),
+  rf_24ghz: () => createCustomIcon(
+    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></svg>`,
+    '#082f49', '#38bdf8'
+  ),
   droneUnknown: () => L.divIcon({
     className: 'custom-drone-unknown',
     html: `<div style="
@@ -306,10 +310,14 @@ const SensorMarkerItem: React.FC<{
   if (sensor.sensor_type === 'acoustic') {
     icon = icons.acoustic();
     circleColor = '#fbbf24';
+  } else if (sensor.sensor_type === 'rf_24ghz') {
+    icon = icons.rf_24ghz();
+    circleColor = '#38bdf8';
   } else if (sensor.sensor_type === 'observation_post') {
     icon = icons.observation_post();
-    circleColor = '#a78bfa';
-  } else if (sensor.sensor_type === 'witness_report') {
+    circleColor = sensor.detection_radius > 2000 ? '#a855f7' : '#c084fc';
+  }
+  else if (sensor.sensor_type === 'witness_report') {
     icon = icons.witness_report();
     circleColor = '#f472b6';
   } else if (sensor.sensor_type === 'target_asset') {
