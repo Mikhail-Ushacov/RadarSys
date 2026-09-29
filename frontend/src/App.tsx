@@ -135,22 +135,6 @@ export const App: React.FC = () => {
     await fetch(`${backendUrl}/api/v1/simulation/reset`, { method: 'POST' });
   };
 
-  const handleResetGrid = async () => {
-    await fetch(`${backendUrl}/api/v1/zones/reset_full_grid`, { method: 'POST' });
-  };
-
-  const handleGenerateFromH3 = async () => {
-    try {
-      const res = await fetch(`${backendUrl}/api/v1/zones/generate_from_h3`, { method: 'POST' });
-      const data = await res.json();
-      if (data.status === 'success') {
-        alert(`Успішно сформовано ${data.count} об'єднаних районів із сітки H3 (Червоні, Помаранчеві, Зелені)!`);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const handleTriggerBurst = async (nodeId: number) => {
     await fetch(`${backendUrl}/api/v1/ew/arm`, {
       method: 'POST',
@@ -268,22 +252,6 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleOptimizeEW = async () => {
-    try {
-      const res = await fetch(`${backendUrl}/api/v1/ew/optimize?node_count=7&replace=true`, {
-        method: 'POST'
-      });
-      const data = await res.json();
-      if (data.status === 'success' && data.nodes) {
-        setEwNodes(data.nodes);
-        alert(`Успішно оптимізовано та розгорнуто ${data.count} комплексів РЕБ по всіх секторах!`);
-      }
-    } catch (err) {
-      console.error('Помилка оптимізації РЕБ:', err);
-      alert('Помилка виконання оптимізації. Перевірте зв’язок із сервером.');
-    }
-  };
-
   return (
     <div className={s.root}>
       <header className={s.bar}>
@@ -316,7 +284,6 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Перемикання вмісту сторінки */}
       {currentPage === 'history' ? (
         <InterceptionHistoryPage onBackToMap={() => setCurrentPage('map')} />
       ) : (
@@ -336,16 +303,13 @@ export const App: React.FC = () => {
             threatInfo={threatInfo}
             onToggleMapClickToAdd={() => setAllowMapClickToAdd((prev) => !prev)}
             onStartDrawingZone={handleStartDrawingZone}
-            onGenerateFromH3={handleGenerateFromH3}
             onToggleSimulation={handleToggleSimulation}
             onToggleAutoTracking={handleToggleAutoTracking}
             onResetSimulation={handleResetSimulation}
-            onResetGrid={handleResetGrid}
             onTriggerBurst={handleTriggerBurst} 
             onOpenAddModal={handleOpenAddModal}
             onEditObject={handleEditObject}
             onOpenHistoryPage={() => setCurrentPage('history')}
-            onOptimizeEW={handleOptimizeEW}
           />
           <div className={s.mapPane}>
             <TacticalMap 
@@ -395,7 +359,5 @@ export const App: React.FC = () => {
     </div>
   );
 };
-
-
 
 export default App;

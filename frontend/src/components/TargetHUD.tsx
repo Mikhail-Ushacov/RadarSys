@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Track, EWNode, TacticalSensor, TacticalZone, DownedDroneDetailed } from '../types';
 import {
   Crosshair, Zap, Plus, Camera, Mic,
   Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3,
-  Play, Square, RotateCcw, Grid, Compass,
-  AlertOctagon, History, ArrowRight, PenTool, Sparkles, Database, Users
+  Play, Square, RotateCcw, Compass,
+  AlertOctagon, History, ArrowRight, PenTool, Users
 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 import { Button } from './ui/Button';
@@ -28,69 +28,21 @@ interface Props {
   threatInfo: string | null;
   onToggleMapClickToAdd: () => void;
   onStartDrawingZone: () => void;
-  onGenerateFromH3: () => void;
   onToggleSimulation: () => void;
   onToggleAutoTracking: () => void;
   onResetSimulation: () => void;
-  onResetGrid: () => void;
   onTriggerBurst: (nodeId: number) => void;
   onOpenAddModal: () => void;
   onEditObject: (obj: EditableObject) => void;
   onOpenHistoryPage: () => void;
-  onSeedData?: () => void;
-  onOptimizeEW?: () => Promise<void> | void;
 }
 
 export const TargetHUD: React.FC<Props> = ({
   tracks, ewNodes, sensors, zones, recentDowned, totalDownedCount,
   allowMapClickToAdd, isDrawingZone, simulationActive, autoTracking, emergencyOverride, threatInfo,
-  onToggleMapClickToAdd, onStartDrawingZone, onGenerateFromH3, onToggleSimulation, onToggleAutoTracking,
-  onResetSimulation, onResetGrid, onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage, onSeedData,
-  onOptimizeEW
+  onToggleMapClickToAdd, onStartDrawingZone, onToggleSimulation, onToggleAutoTracking,
+  onResetSimulation, onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage
 }) => {
-  const [seeding, setSeeding] = useState(false);
-
-  const handleSeed = async () => {
-    if (onSeedData) {
-      onSeedData();
-      return;
-    }
-    try {
-      setSeeding(true);
-      const res = await fetch(`http://${window.location.hostname}:8000/api/v1/seed`, { method: 'POST' });
-      if (res.ok) {
-        alert('Базу даних успішно наповнено новими тактичними сенсорами, камерами, РЕБ та зонами!');
-      }
-    } catch (e) {
-      console.error('Помилка виконання seed:', e);
-    } finally {
-      setSeeding(false);
-    }
-  };
-
-  const [isOptimizing, setIsOptimizing] = useState(false);
-
-  const handleRunOptimization = async () => {
-    if (!confirm('Перерахувати оптимальні позиції комплексів РЕБ за даними H3 та ОКІ?')) return;
-    try {
-      setIsOptimizing(true);
-      if (onOptimizeEW) {
-        await onOptimizeEW();
-      } else {
-        const res = await fetch(`http://${window.location.hostname}:8000/api/v1/ew/optimize?node_count=5&replace=true`, { method: 'POST' });
-        const data = await res.json();
-        if (data.status === 'success') {
-          alert(`Успішно оптимізовано ${data.count} комплексів РЕБ!`);
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Помилка оптимізації РЕБ');
-    } finally {
-      setIsOptimizing(false);
-    }
-  };
-
   return (
     <div className={styles.root}>
       <div className={styles.head}>
@@ -105,11 +57,6 @@ export const TargetHUD: React.FC<Props> = ({
             <Plus size={15} /> ДОДАТИ
           </Button>
         </div>
-      </div>
-      <div className={styles.optBar}>
-        <Button variant="default" onClick={handleRunOptimization} disabled={isOptimizing} title="Автоматичний розрахунок оптимальних рубежів РЕБ">
-          <Compass size={12} /> {isOptimizing ? 'Розрахунок...' : 'Оптимізувати РЕБ'}
-        </Button>
       </div>
 
       {threatInfo && (
@@ -139,31 +86,19 @@ export const TargetHUD: React.FC<Props> = ({
             {simulationActive ? <><Square size={13} /> ПАУЗА</> : <><Play size={13} /> СТАРТ</>}
           </Button>
           <Button variant="default" onClick={onResetSimulation} title="Перезапустити випадкову появу дрона за містом">
-            <RotateCcw size={14} />
-          </Button>
-          <Button variant="primary" onClick={handleSeed} disabled={seeding} title="Завантажити новий логічний Seed (камери, мікрофони, МВГ, РЕБ)">
-            <Database size={14} />
-          </Button>
-          <Button variant="default" onClick={onResetGrid} title="Очистити всі зони, сенсори та вузли РЕБ">
-            <Grid size={14} />
+            <RotateCcw size={14} /> Перезапуск дрона
           </Button>
         </div>
 
-        <div className={styles.zoneGrid}>
-          <Button
-            variant="default"
-            onClick={onGenerateFromH3}
-            title="Об'єднати H3 гексагони у суцільні райони безпеки"
-          >
-            <Sparkles size={12} /> Згенерувати з H3
-          </Button>
+        <div className={styles.drawZoneWrap}>
           <Button
             variant="default"
             active={isDrawingZone}
             onClick={onStartDrawingZone}
             title="Малювати зону довільної форми кліками на карті"
+            className={styles.fullWidth}
           >
-            <PenTool size={12} /> {isDrawingZone ? 'Малювання...' : 'Вільна форма'}
+            <PenTool size={12} /> {isDrawingZone ? 'Малювання зони на карті...' : 'Малювати зону вільної форми'}
           </Button>
         </div>
       </div>
@@ -363,7 +298,6 @@ export const TargetHUD: React.FC<Props> = ({
             </div>
           ))}
         </Section>
-
       </div>
     </div>
   );
