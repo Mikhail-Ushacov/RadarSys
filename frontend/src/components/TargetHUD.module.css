@@ -60,10 +60,6 @@
 }
 
 .panel {
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 8px;
   margin-top: 0.6rem;
 }
 
@@ -106,18 +102,6 @@
   border: 1px solid var(--border);
 }
 
-.trackCard {
-  border-left: 4px solid var(--danger);
-}
-
-.trackSafe {
-  border-left-color: var(--safe);
-}
-
-.trackCaution {
-  border-left-color: var(--caution);
-}
-
 .cardHead {
   display: flex;
   justify-content: space-between;
@@ -136,16 +120,45 @@
   color: var(--text-2);
 }
 
-.kv {
-  background: var(--bg-sunken);
-  padding: 6px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-}
-
 .note {
   font-size: 0.68rem;
   margin-top: 3px;
+}
+
+.divider {
+  margin-top: 5px;
+  border-top: 1px dashed var(--border);
+  padding-top: 4px;
+}
+
+.lead {
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.strong {
+  font-weight: bold;
+  color: var(--text-1);
+}
+
+.optBar {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .empty {
@@ -185,7 +198,6 @@
 .miniItem {
   background: var(--bg-sunken);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--danger);
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius-sm);
   margin-bottom: 4px;

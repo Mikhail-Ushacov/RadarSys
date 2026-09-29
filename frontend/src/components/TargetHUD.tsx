@@ -106,7 +106,7 @@ export const TargetHUD: React.FC<Props> = ({
           </Button>
         </div>
       </div>
-      <div className={styles.headActions} style={{ marginTop: 6 }}>
+      <div className={styles.optBar}>
         <Button variant="default" onClick={handleRunOptimization} disabled={isOptimizing} title="Автоматичний розрахунок оптимальних рубежів РЕБ">
           <Compass size={12} /> {isOptimizing ? 'Розрахунок...' : 'Оптимізувати РЕБ'}
         </Button>
@@ -191,13 +191,10 @@ export const TargetHUD: React.FC<Props> = ({
                 isInitial ? 'caution' :
                 t.is_ci_critical ? 'jamming' :
                 (t.is_safe_to_engage ? 'safe' : 'danger');
-              const cardTone = t.status === 'CRASHED' || (!t.is_safe_to_engage && !isInitial && t.status !== 'JAMMED') ? '' :
-                (t.status === 'JAMMED' || isInitial) ? ` ${styles.trackCaution}` :
-                t.is_ci_critical ? '' : ` ${styles.trackSafe}`;
               return (
                 <div
                   key={t.id}
-                  className={`${styles.card} ${styles.trackCard}${cardTone}`}
+                  className={styles.card}
                 >
                   <div className={styles.cardHead}>
                     <span className={styles.cardTitle}>
@@ -214,8 +211,8 @@ export const TargetHUD: React.FC<Props> = ({
 
                   <div className={styles.cardBody}>
                     {isInitial ? (
-                      <div className={styles.kv}>
-                        <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <div>
+                        <div className={styles.lead}>
                           <AlertTriangle size={13} /> Засічка: {t.last_sensor}
                         </div>
                         <div className={styles.note}>
@@ -223,8 +220,8 @@ export const TargetHUD: React.FC<Props> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className={styles.kv}>
-                        <div className={`${styles.row} t-mono`} style={{ justifyContent: 'space-between' }}>
+                      <div>
+                        <div className={`${styles.split} t-mono`}>
                           <span>Швидкість: <b>{t.speed !== null ? `${(t.speed * 3.6).toFixed(0)} км/год` : '?'}</b></span>
                           <span>Курс: <b>{t.heading !== null ? `${t.heading.toFixed(0)}°` : '?'}</b></span>
                         </div>
@@ -255,7 +252,7 @@ export const TargetHUD: React.FC<Props> = ({
                         )}
 
                         {t.detection_timeline && t.detection_timeline.length > 0 && (
-                          <div style={{ marginTop: 5, borderTop: '1px dashed var(--border)', paddingTop: 4 }}>
+                          <div className={styles.divider}>
                             <div className={styles.note}>ЛАНЦЮЖОК ВИЯВЛЕННЯ:</div>
                             {t.detection_timeline.map((line, idx) => (
                               <div key={idx} className={styles.note}>• {line}</div>
@@ -275,10 +272,10 @@ export const TargetHUD: React.FC<Props> = ({
           {recentDowned.length === 0 ? (
             <p className={styles.note}>Журнал порожній (цілі ще не утилізовано)</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className={styles.stack}>
               {recentDowned.map((d) => (
                 <div key={d.id} className={styles.miniItem}>
-                  <div className={styles.row} style={{ justifyContent: 'space-between' }}>
+                  <div className={styles.split}>
                     <strong className={styles.cardTitle}>{d.drone_id}</strong>
                     <span className={`${styles.note} t-mono`}>{d.downed_time.split(' ')[1] || d.downed_time}</span>
                   </div>
@@ -336,7 +333,7 @@ export const TargetHUD: React.FC<Props> = ({
               {s.sensor_type === 'target_asset' && <Target size={16} />}
               {s.sensor_type === 'witness_report' && <Users size={16} />}
               <div className={`${styles.cardBody} ${styles.grow}`}>
-                <div style={{ fontWeight: 'bold', color: 'var(--text-1)' }}>{s.name}</div>
+                <div className={styles.strong}>{s.name}</div>
                 <div>R: <span className="t-mono">{s.detection_radius}м</span> {s.description ? `• ${s.description}` : ''}</div>
               </div>
               <button onClick={() => onEditObject({ type: 'sensor', data: s })} className={styles.iconBtn} title="Редагувати">
@@ -348,7 +345,7 @@ export const TargetHUD: React.FC<Props> = ({
 
         <Section title={`Тактичні райони (${zones.length})`}>
           {zones.map((z) => (
-            <div key={z.id} className={`${styles.card} ${styles.row}`} style={{ justifyContent: 'space-between' }}>
+            <div key={z.id} className={`${styles.card} ${styles.split}`}>
               <span className={`${styles.cardBody} ${styles.row}`}>
                 {z.zone_type === 'safe' && <ShieldCheck size={14} />}
                 {z.zone_type === 'caution' && <AlertTriangle size={14} />}
