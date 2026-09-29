@@ -10,7 +10,7 @@
   font-family: inherit;
   cursor: pointer;
   border: 1px solid transparent;
-  color: #fff;
+  color: var(--text-on-fill);
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
@@ -31,14 +31,17 @@
 
 .primary {
   background: var(--accent);
+  color: var(--text-on-bright);
 }
 
 .success {
   background: var(--safe);
+  color: var(--text-on-bright);
 }
 
 .danger {
   background: var(--danger);
+  color: var(--text-on-bright);
 }
 
 .ghost {

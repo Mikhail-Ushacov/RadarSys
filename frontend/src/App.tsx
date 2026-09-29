@@ -6,6 +6,8 @@ import { TacticalObjectModal, EditableObject } from './components/TacticalObject
 import { InterceptionHistoryPage } from './components/InterceptionHistoryPage';
 import { TacticalUpdate, Track, EWNode, TacticalZone, TacticalSensor, DownedDroneDetailed } from './types';
 import { Map as MapIcon, History as HistoryIcon, Sun, Moon } from 'lucide-react';
+import { Badge } from './components/ui';
+import s from './App.module.css';
 import { useTheme } from './theme';
 
 export const App: React.FC = () => {
@@ -283,30 +285,29 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="app-root-layout">
-      {/* Верхнє навігаційне меню */}
-      <header className="top-navbar">
-        <div className="navbar-left">
-          <span className="navbar-logo">SURGICAL EW C2</span>
-          <span className="navbar-divider">|</span>
-          <span className="navbar-subtitle">СИСТЕМА ХІРУРГІЧНОГО ПРИДУШЕННЯ БПЛА ТА УПРАВЛІННЯ ЗОНАМИ</span>
+    <div className={s.root}>
+      <header className={s.bar}>
+        <div className={s.brand}>
+          <span className={s.logo}>SURGICAL EW C2</span>
+          <span className={s.divider}>|</span>
+          <span className={s.sub}>СИСТЕМА ХІРУРГІЧНОГО ПРИДУШЕННЯ БПЛА ТА УПРАВЛІННЯ ЗОНАМИ</span>
         </div>
-        <div className="navbar-tabs">
-          <button 
-            className={`nav-tab-btn ${currentPage === 'map' ? 'active' : ''}`}
+        <div className={s.tabs}>
+          <button
+            className={`${s.tab} ${currentPage === 'map' ? s.active : ''}`}
             onClick={() => setCurrentPage('map')}
           >
             <MapIcon size={15} /> ТАКТИЧНА КАРТА
           </button>
-          <button 
-            className={`nav-tab-btn ${currentPage === 'history' ? 'active' : ''}`}
+          <button
+            className={`${s.tab} ${currentPage === 'history' ? s.active : ''}`}
             onClick={() => setCurrentPage('history')}
           >
             <HistoryIcon size={15} /> ЖУРНАЛ ЗБИТТІВ
-            <span className="nav-tab-badge">{totalDownedCount}</span>
+            <Badge tone="info">{totalDownedCount}</Badge>
           </button>
           <button
-            className="nav-tab-btn"
+            className={s.tab}
             onClick={toggle}
             aria-label="theme"
           >
@@ -319,7 +320,7 @@ export const App: React.FC = () => {
       {currentPage === 'history' ? (
         <InterceptionHistoryPage onBackToMap={() => setCurrentPage('map')} />
       ) : (
-        <div className="tactical-container">
+        <div className={s.body}>
           <TargetHUD 
             tracks={tracks} 
             ewNodes={ewNodes} 
@@ -346,8 +347,9 @@ export const App: React.FC = () => {
             onOpenHistoryPage={() => setCurrentPage('history')}
             onOptimizeEW={handleOptimizeEW}
           />
-          <div className="map-pane">
+          <div className={s.mapPane}>
             <TacticalMap 
+              dark={dark}
               tracks={tracks} 
               ewNodes={ewNodes} 
               zones={zones}

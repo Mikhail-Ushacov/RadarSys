@@ -1,10 +1,12 @@
-// frontend/src/components/TacticalObjectModal.tsx
 import React, { useState, useEffect } from 'react';
-import { 
-  Radio, Camera, Mic, Eye, Users, 
-  Target, ShieldCheck, ShieldAlert, AlertTriangle, X, MapPin
+import {
+  Radio, Camera, Mic, Eye,
+  Target, ShieldCheck, ShieldAlert, AlertTriangle
 } from 'lucide-react';
 import { EWNode, TacticalSensor, TacticalZone, SensorType, ZoneType } from '../types';
+import { Modal } from './ui/Modal';
+import { Button } from './ui/Button';
+import styles from './TacticalObjectModal.module.css';
 
 export type EditableObject = 
   | { type: 'ew'; data: EWNode }
@@ -54,7 +56,7 @@ export const TacticalObjectModal: React.FC<Props> = ({
   const [radius, setRadius] = useState('2000');
   const [azimuth, setAzimuth] = useState('45');
   const [beamwidth, setBeamwidth] = useState('30');
-  const [zoneRadius, setZoneRadius] = useState('1500');
+  const [zoneRadius] = useState('1500');
   const [description, setDescription] = useState('');
   const [freeformCoordsText, setFreeformCoordsText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -244,209 +246,170 @@ export const TacticalObjectModal: React.FC<Props> = ({
     }
   };
 
+  const cats: { id: ObjectCategory; icon: React.ReactNode; label: string }[] = [
+    { id: 'ew_node', icon: <Radio size={15} />, label: 'РЕБ (Спрямований)' },
+    { id: 'target_asset', icon: <Target size={15} />, label: "Критичний об'єкт" },
+    { id: 'danger_zone', icon: <ShieldAlert size={15} />, label: 'Червона зона (No-drop)' },
+    { id: 'caution_zone', icon: <AlertTriangle size={15} />, label: 'Помаранчева зона (Буфер)' },
+    { id: 'safe_zone', icon: <ShieldCheck size={15} />, label: 'Зелена зона (Killbox)' },
+    { id: 'camera', icon: <Camera size={15} />, label: 'Оптична камера' },
+    { id: 'acoustic', icon: <Mic size={15} />, label: 'Акустичний пост' },
+    { id: 'observation_post', icon: <Eye size={15} />, label: 'Мобільна вогнева група' },
+  ];
+
   return (
-    <div className="modal-overlay">
-      <div className="tactical-modal">
-        <div className="modal-header">
-          <h3>{isEditing ? 'РЕДАГУВАННЯ ТАКТИЧНОГО ОБ\'ЄКТА' : 'СТВОРЕННЯ ТАКТИЧНОГО ОБ\'ЄКТА / ЗОНИ'}</h3>
-          <button onClick={onClose} className="btn-close"><X size={18} /></button>
+    <Modal
+      title={isEditing ? "РЕДАГУВАННЯ ТАКТИЧНОГО ОБ'ЄКТА" : "СТВОРЕННЯ ТАКТИЧНОГО ОБ'ЄКТА / ЗОНИ"}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>СКАСУВАТИ</Button>
+          <Button variant="primary" onClick={(e) => { e.preventDefault(); handleSubmit(e as unknown as React.FormEvent); }} disabled={loading}>
+            {loading ? 'ЗБЕРЕЖЕННЯ...' : isEditing ? 'ОНОВИТИ ДАНІ' : "ЗБЕРЕГТИ ОБ'ЄКТ В БД"}
+          </Button>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit}>
+        {!isEditing && (
+          <div className={styles.group}>
+            <span className={styles.label}>Тип об'єкта або тактичної зони</span>
+            <div className={styles.catGrid}>
+              {cats.map((c) => (
+                <Button
+                  key={c.id}
+                  type="button"
+                  variant="default"
+                  active={category === c.id}
+                  onClick={() => setCategory(c.id)}
+                >
+                  {c.icon} {c.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className={styles.group}>
+          <label className={styles.label}>Позивний / Назва</label>
+          <input
+            type="text"
+            placeholder={isZoneCategory ? 'Наприклад: Район Вишгородських лісів' : 'Наприклад: РЕБ-ГАРДА-2'}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={styles.input}
+            required
+          />
         </div>
 
-        <form onSubmit={handleSubmit}>
-          {!isEditing && (
-            <div className="form-group">
-              <label>Тип об'єкта або тактичної зони</label>
-              <div className="category-grid">
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'ew_node' ? 'active' : ''}`}
-                  onClick={() => setCategory('ew_node')}
-                >
-                  <Radio size={15} color="#38bdf8" /> РЕБ (Спрямований)
-                </button>
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'target_asset' ? 'active' : ''}`}
-                  onClick={() => setCategory('target_asset')}
-                >
-                  <Target size={15} color="#f87171" /> Критичний об'єкт
-                </button>
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'danger_zone' ? 'active danger' : ''}`}
-                  onClick={() => setCategory('danger_zone')}
-                >
-                  <ShieldAlert size={15} color="#ef4444" /> Червона зона (No-drop)
-                </button>
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'caution_zone' ? 'active caution' : ''}`}
-                  onClick={() => setCategory('caution_zone')}
-                >
-                  <AlertTriangle size={15} color="#f59e0b" /> Помаранчева зона (Буфер)
-                </button>
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'safe_zone' ? 'active safe' : ''}`}
-                  onClick={() => setCategory('safe_zone')}
-                >
-                  <ShieldCheck size={15} color="#10b981" /> Зелена зона (Killbox)
-                </button>
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'camera' ? 'active' : ''}`}
-                  onClick={() => setCategory('camera')}
-                >
-                  <Camera size={15} color="#34d399" /> Оптична камера
-                </button>
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'acoustic' ? 'active' : ''}`}
-                  onClick={() => setCategory('acoustic')}
-                >
-                  <Mic size={15} color="#fbbf24" /> Акустичний пост
-                </button>
-                <button
-                  type="button"
-                  className={`cat-btn ${category === 'observation_post' ? 'active' : ''}`}
-                  onClick={() => setCategory('observation_post')}
-                >
-                  <Eye size={15} color="#a78bfa" /> Мобільна вогнева група
-                </button>
-              </div>
+        {isZoneCategory ? (
+          <div className={styles.group}>
+            <div className={`${styles.label} ${styles.labelRow}`}>
+              <span>Координати вершин [Lat, Lon]</span>
+              <span className="t-mono">
+                {freeformCoordsText.split('\n').filter(l => l.trim()).length} вершин
+              </span>
             </div>
-          )}
-
-          <div className="form-group">
-            <label>Позивний / Назва</label>
-            <input
-              type="text"
-              placeholder={isZoneCategory ? "Наприклад: Район Вишгородських лісів" : "Наприклад: РЕБ-ГАРДА-2"}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="tactical-input"
-              required
+            <textarea
+              rows={5}
+              className={`${styles.input} t-mono`}
+              placeholder={'50.51234, 30.54321\n50.53456, 30.56789\n50.51987, 30.58912'}
+              value={freeformCoordsText}
+              onChange={(e) => setFreeformCoordsText(e.target.value)}
             />
+            <div className={styles.hint}>
+              Порада: також можна скористатись малюванням зони прямо на карті, щоб наклікати полігон.
+            </div>
           </div>
-
-          {/* КООРДИНАТИ ДЛЯ ЗОН ВІЛЬНОЇ ФОРМИ */}
-          {isZoneCategory ? (
-            <div className="form-group">
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Координати вершин вільної форми [Lat, Lon] (кожен рядок — точка)</span>
-                <span style={{ color: '#38bdf8', fontSize: '0.7rem' }}>
-                  {freeformCoordsText.split('\n').filter(l => l.trim()).length} вершин
-                </span>
-              </label>
-              <textarea
-                rows={5}
-                className="tactical-input"
-                style={{ fontFamily: 'monospace', fontSize: '0.75rem', lineHeight: '1.4' }}
-                placeholder={`50.51234, 30.54321\n50.53456, 30.56789\n50.51987, 30.58912`}
-                value={freeformCoordsText}
-                onChange={(e) => setFreeformCoordsText(e.target.value)}
+        ) : (
+          <div className={styles.coordsRow}>
+            <div className={styles.group}>
+              <label className={styles.label}>Широта (Lat)</label>
+              <input
+                type="number"
+                step="any"
+                value={lat}
+                onChange={(e) => setLat(e.target.value)}
+                className={`${styles.input} t-mono`}
+                required
               />
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '3px' }}>
-                Порада: також можна скористатись кнопкою <b>«МАЛЮВАТИ ЗОНУ»</b> прямо на карті, щоб наклікати полігон.
-              </div>
             </div>
-          ) : (
-            <div className="coords-row">
-              <div className="form-group">
-                <label>Широта (Lat)</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={lat}
-                  onChange={(e) => setLat(e.target.value)}
-                  className="tactical-input"
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Довгота (Lon)</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={lon}
-                  onChange={(e) => setLon(e.target.value)}
-                  className="tactical-input"
-                  required
-                />
-              </div>
+            <div className={styles.group}>
+              <label className={styles.label}>Довгота (Lon)</label>
+              <input
+                type="number"
+                step="any"
+                value={lon}
+                onChange={(e) => setLon(e.target.value)}
+                className={`${styles.input} t-mono`}
+                required
+              />
             </div>
-          )}
-
-          {category === 'ew_node' && (
-            <>
-              <div className="coords-row">
-                <div className="form-group">
-                  <label>Азимут променя (°)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="360"
-                    value={azimuth}
-                    onChange={(e) => setAzimuth(e.target.value)}
-                    className="tactical-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Ширина променя (°)</label>
-                  <input
-                    type="number"
-                    min="5"
-                    max="120"
-                    value={beamwidth}
-                    onChange={(e) => setBeamwidth(e.target.value)}
-                    className="tactical-input"
-                  />
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Радіус дії (м)</label>
-                <input
-                  type="number"
-                  value={radius}
-                  onChange={(e) => setRadius(e.target.value)}
-                  className="tactical-input"
-                />
-              </div>
-            </>
-          )}
-
-          {['camera', 'acoustic', 'observation_post', 'witness_report', 'target_asset'].includes(category) && (
-            <>
-              <div className="form-group">
-                <label>Радіус виявлення / засікання (м)</label>
-                <input
-                  type="number"
-                  value={radius}
-                  onChange={(e) => setRadius(e.target.value)}
-                  className="tactical-input"
-                />
-              </div>
-              <div className="form-group">
-                <label>Опис / Додаткові дані</label>
-                <input
-                  type="text"
-                  placeholder="Оптичний канал, частоти або контакт"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="tactical-input"
-                />
-              </div>
-            </>
-          )}
-
-          <div className="modal-actions">
-            <button type="button" onClick={onClose} className="btn-secondary">СКАСУВАТИ</button>
-            <button type="submit" disabled={loading} className="btn-primary">
-              {loading ? 'ЗБЕРЕЖЕННЯ...' : isEditing ? 'ОНОВИТИ ДАНІ' : 'ЗБЕРЕГТИ ОБ\'ЄКТ В БД'}
-            </button>
           </div>
-        </form>
-      </div>
-    </div>
+        )}
+
+        {category === 'ew_node' && (
+          <>
+            <div className={styles.coordsRow}>
+              <div className={styles.group}>
+                <label className={styles.label}>Азимут променя (°)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="360"
+                  value={azimuth}
+                  onChange={(e) => setAzimuth(e.target.value)}
+                  className={`${styles.input} t-mono`}
+                />
+              </div>
+              <div className={styles.group}>
+                <label className={styles.label}>Ширина променя (°)</label>
+                <input
+                  type="number"
+                  min="5"
+                  max="120"
+                  value={beamwidth}
+                  onChange={(e) => setBeamwidth(e.target.value)}
+                  className={`${styles.input} t-mono`}
+                />
+              </div>
+            </div>
+            <div className={styles.group}>
+              <label className={styles.label}>Радіус дії (м)</label>
+              <input
+                type="number"
+                value={radius}
+                onChange={(e) => setRadius(e.target.value)}
+                className={`${styles.input} t-mono`}
+              />
+            </div>
+          </>
+        )}
+
+        {['camera', 'acoustic', 'observation_post', 'witness_report', 'target_asset'].includes(category) && (
+          <>
+            <div className={styles.group}>
+              <label className={styles.label}>Радіус виявлення / засікання (м)</label>
+              <input
+                type="number"
+                value={radius}
+                onChange={(e) => setRadius(e.target.value)}
+                className={`${styles.input} t-mono`}
+              />
+            </div>
+            <div className={styles.group}>
+              <label className={styles.label}>Опис / Додаткові дані</label>
+              <input
+                type="text"
+                placeholder="Оптичний канал, частоти або контакт"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className={styles.input}
+              />
+            </div>
+          </>
+        )}
+      </form>
+    </Modal>
   );
 };

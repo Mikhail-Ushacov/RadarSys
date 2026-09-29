@@ -34,5 +34,5 @@
 
 .jamming {
   background: var(--danger);
-  color: #fff;
+  color: var(--text-on-bright);
 }
