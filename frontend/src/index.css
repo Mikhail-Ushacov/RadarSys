@@ -87,3 +87,10 @@ body, html, #root {
   font-variant-numeric: tabular-nums;
 }
 
+html.no-transition,
+html.no-transition *,
+html.no-transition *::before,
+html.no-transition *::after {
+  transition-property: opacity, transform, filter !important;
+}
+

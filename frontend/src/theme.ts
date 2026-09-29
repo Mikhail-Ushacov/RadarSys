@@ -12,7 +12,11 @@ function initial(): boolean {
 }
 
 function apply(dark: boolean) {
-  document.documentElement.classList.toggle('dark', dark);
+  const root = document.documentElement;
+  root.classList.add('no-transition');
+  void root.offsetHeight;
+  root.classList.toggle('dark', dark);
+  requestAnimationFrame(() => root.classList.remove('no-transition'));
   try {
     localStorage.setItem(KEY, dark ? 'dark' : 'light');
   } catch { /* ignore */ }
