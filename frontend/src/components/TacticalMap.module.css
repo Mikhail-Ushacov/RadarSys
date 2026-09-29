@@ -15,10 +15,10 @@
 .hudValue { font-family: var(--font-mono); }
 .dimmed { color: var(--text-3); }
 .popup { font-size: 0.78rem; color: var(--text-1); }
-:global(.leaflet-popup-content-wrapper) { background: var(--bg-raised); color: var(--text-1); border: 1px solid var(--border-strong); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
-:global(.leaflet-popup-tip) { background: var(--bg-raised); border: 1px solid var(--border-strong); }
-:global(.leaflet-popup-content) { margin: 12px 14px; line-height: 1.4; }
-:global(.leaflet-popup-close-button) { color: var(--text-2) !important; }
+:global(html .leaflet-popup-content-wrapper) { background: var(--bg-raised); color: var(--text-1); border: 1px solid var(--border-strong); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+:global(html .leaflet-popup-tip) { background: var(--bg-raised); border: 1px solid var(--border-strong); }
+:global(html .leaflet-popup-content) { margin: 12px 14px; line-height: 1.4; color: var(--text-1); }
+:global(html a.leaflet-popup-close-button) { color: var(--text-2) !important; }
 .popup p { margin: 3px 0; }
 .popupTitle { font-size: 0.82rem; }
 .toneSafe { color: var(--safe); }
