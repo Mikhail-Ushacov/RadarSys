@@ -4,7 +4,7 @@ export type DetectionStage = 'INITIAL_CONTACT' | 'TRACKED';
 
 export interface ActiveEvent {
   id: number;
-  type: 'witness_call' | 'sensor_alert';
+  type: 'witness_call' | 'sensor_alert' | 'emergency_112_call';
   title: string;
   message: string;
   lat: number;
@@ -12,8 +12,18 @@ export interface ActiveEvent {
   time: number;
 }
 
+export interface Emergency112Alert {
+  called: boolean;
+  message: string;
+  lat: number;
+  lon: number;
+  radius: number;
+  drone_type?: string;
+}
+
 export interface Track {
   id: string;
+  drone_type?: string;
   status?: 'CRUISING' | 'JAMMED' | 'CRASHED' | 'DETECTING';
   detection_stage?: 'INITIAL_CONTACT' | 'TRACKED';
   detection_count?: number;
@@ -81,6 +91,7 @@ export interface TacticalSensor {
 export interface DownedDroneDetailed {
   id: number;
   drone_id: string;
+  drone_type: string;
   spawn_time: string;
   downed_time: string;
   spawn_coords: string;
@@ -88,6 +99,9 @@ export interface DownedDroneDetailed {
   interceptor_name: string;
   crash_coords: string;
   crash_zone: string;
+  debris_radius_m: number;
+  emergency_112_called: boolean;
+  emergency_details: string;
   status: string;
 }
 
@@ -97,6 +111,7 @@ export interface TacticalUpdate {
   zones: TacticalZone[];
   sensors: TacticalSensor[];
   active_events?: ActiveEvent[];
+  emergency_112_alert?: Emergency112Alert | null;
   timestamp: number;
   simulation_active?: boolean;
   auto_tracking?: boolean;

@@ -1,7 +1,8 @@
+// frontend/src/components/InterceptionHistoryPage.tsx
 import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, CheckCircle2, RotateCcw, Trash2,
-  Search, Download, AlertTriangle
+  Search, Download, AlertTriangle, Siren
 } from 'lucide-react';
 import { DownedDroneDetailed } from '../types';
 import { Button, Badge } from './ui';
@@ -47,10 +48,15 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
 
   const handleExportCSV = () => {
     if (history.length === 0) return;
-    const headers = ["ID", "Бортовий номер", "Час появи", "Час збиття", "Координати появи", "Ціль ворога", "Комплекс РЕБ", "Координати падіння", "Сектор падіння", "Статус"];
+    const headers = [
+      "ID", "Бортовий номер", "Тип БПЛА", "Час появи", "Час збиття",
+      "Координати появи", "Ціль ворога", "Комплекс РЕБ", "Координати падіння",
+      "Сектор падіння", "Розліт уламків (м)", "Виклик 112", "Деталі 112", "Статус"
+    ];
     const rows = history.map((d) => [
       d.id,
       d.drone_id,
+      `"${d.drone_type || 'БПЛА'}"`,
       `"${d.spawn_time}"`,
       `"${d.downed_time}"`,
       `"${d.spawn_coords}"`,
@@ -58,6 +64,9 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
       `"${d.interceptor_name}"`,
       `"${d.crash_coords}"`,
       `"${d.crash_zone}"`,
+      d.debris_radius_m || 120,
+      d.emergency_112_called ? "ТАК" : "НІ",
+      `"${d.emergency_details || ''}"`,
       d.status
     ]);
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
@@ -72,12 +81,14 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
 
   const filtered = history.filter((d) =>
     d.drone_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (d.drone_type && d.drone_type.toLowerCase().includes(searchTerm.toLowerCase())) ||
     d.target_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     d.interceptor_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     d.crash_zone.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const killboxInterceptions = history.filter((h) => h.crash_zone.includes('🟢') || h.crash_zone.toLowerCase().includes('killbox')).length;
+  const emergency112Count = history.filter((h) => h.emergency_112_called).length;
 
   return (
     <div className={s.page}>
@@ -107,19 +118,19 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
         <div className={s.stat}>
           <div className={s.statT}>ВСЬОГО ЗБИТО ДРОНІВ</div>
           <div className={`${s.statV} ${s.vDanger}`}>{history.length}</div>
-          <div className={s.statD}>Зафіксовано системою РЕБ</div>
+          <div className={s.statD}>Утилізовано комплексами РЕБ</div>
         </div>
         <div className={s.stat}>
           <div className={s.statT}>УТИЛІЗОВАНО В KILLBOX</div>
           <div className={`${s.statV} ${s.vSafe}`}>{killboxInterceptions}</div>
-          <div className={s.statD}>Хірургічний зрив над безпечними зонами</div>
+          <div className={s.statD}>Безпечні зони без шкоди цивільним</div>
         </div>
         <div className={s.stat}>
-          <div className={s.statT}>ЕФЕКТИВНІСТЬ БЕЗПЕКИ</div>
-          <div className={`${s.statV} ${s.vInfo}`}>
-            {history.length > 0 ? `${Math.round((killboxInterceptions / history.length) * 100)}%` : '100%'}
+          <div className={s.statT}>ВИКЛИКІВ ДСНС / 112</div>
+          <div className={`${s.statV}`} style={{ color: emergency112Count > 0 ? '#ef4444' : '#10b981' }}>
+            {emergency112Count}
           </div>
-          <div className={s.statD}>Частка падінь поза населеними пунктами</div>
+          <div className={s.statD}>Падіння уламків у житлових/буферних зонах</div>
         </div>
       </div>
       <div className={s.filter}>
@@ -127,7 +138,7 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
           <Search size={16} className={s.searchIco} />
           <input
             type="text"
-            placeholder="Швидкий пошук за номером борта (SHAHED-...), об'єктом атаки, комплексом РЕБ або зоною падіння..."
+            placeholder="Швидкий пошук за бортовим номером, типом БПЛА (Shahed, Гербера, Орлан), ціллю або сектором..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className={s.search}
@@ -147,13 +158,14 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
             <thead>
               <tr>
                 <th>№ Борта</th>
-                <th>Час появи</th>
+                <th>Тип БПЛА</th>
                 <th>Час збиття</th>
-                <th>Координати появи</th>
-                <th>Ціль атаки</th>
+                <th>Ціль ворога</th>
                 <th>Комплекс РЕБ</th>
                 <th>Точка падіння</th>
-                <th>Сектор / Зона падіння</th>
+                <th>Зона падіння</th>
+                <th>Уламки</th>
+                <th>Служба 112</th>
                 <th>Статус</th>
                 <th className={s.center}>Дія</th>
               </tr>
@@ -162,9 +174,8 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
               {filtered.map((row) => (
                 <tr key={row.id}>
                   <td><strong className={s.id}>{row.drone_id}</strong></td>
-                  <td className={s.dim}>{row.spawn_time}</td>
+                  <td><b>{row.drone_type || 'Shahed-136'}</b></td>
                   <td className={s.hl}>{row.downed_time}</td>
-                  <td className={s.mono}>{row.spawn_coords}</td>
                   <td><b className={s.tgt}>{row.target_name}</b></td>
                   <td><span className={s.ew}>{row.interceptor_name}</span></td>
                   <td className={s.mono}>{row.crash_coords}</td>
@@ -172,6 +183,16 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
                     <span className={row.crash_zone.includes('🟢') ? s.safe : row.crash_zone.includes('🔴') ? s.zoneDanger : undefined}>
                       {row.crash_zone}
                     </span>
+                  </td>
+                  <td className={s.mono}>~{row.debris_radius_m || 120} м</td>
+                  <td>
+                    {row.emergency_112_called ? (
+                      <span style={{ color: '#ef4444', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+                        <Siren size={14} /> Викликано ДСНС
+                      </span>
+                    ) : (
+                      <span style={{ color: '#10b981' }}>Без загрози</span>
+                    )}
                   </td>
                   <td>
                     <Badge tone="danger">💥 {row.status}</Badge>

@@ -16,6 +16,7 @@ async def get_downed_drones():
             {
                 "id": r.id,
                 "drone_id": r.drone_id,
+                "drone_type": getattr(r, "drone_type", "Shahed-136 (Герань-2)"),
                 "spawn_time": r.spawn_time.strftime("%d.%m.%Y %H:%M:%S") if r.spawn_time else "-",
                 "downed_time": r.downed_time.strftime("%d.%m.%Y %H:%M:%S") if r.downed_time else "-",
                 "spawn_coords": f"{r.spawn_lat:.5f}°, {r.spawn_lon:.5f}°",
@@ -23,6 +24,9 @@ async def get_downed_drones():
                 "interceptor_name": r.interceptor_name,
                 "crash_coords": f"{r.crash_lat:.5f}°, {r.crash_lon:.5f}°",
                 "crash_zone": r.crash_zone,
+                "debris_radius_m": getattr(r, "debris_radius_m", 120.0),
+                "emergency_112_called": getattr(r, "emergency_112_called", False),
+                "emergency_details": getattr(r, "emergency_details", ""),
                 "status": r.status
             }
             for r in items

@@ -11,9 +11,9 @@ class EWNodeModel(Base):
     lat = Column(Float, nullable=False)
     lon = Column(Float, nullable=False)
     alt = Column(Float, default=10.0)
-    max_range = Column(Float, default=3500.0)      # Максимальний радіус дії (м)
-    beamwidth = Column(Float, default=30.0)        # Сектор придушення (градуси)
-    current_azimuth = Column(Float, default=0.0)   # Азимут наведення (градуси)
+    max_range = Column(Float, default=3500.0)
+    beamwidth = Column(Float, default=30.0)
+    current_azimuth = Column(Float, default=0.0)
     current_elevation = Column(Float, default=15.0)
     is_armed = Column(Boolean, default=False)
     is_transmitting = Column(Boolean, default=False)
@@ -23,9 +23,8 @@ class TacticalZoneModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
-    # "danger" (червона), "caution" (помаранчева), "safe" (зелена)
     zone_type = Column(String, nullable=False)
-    coordinates = Column(Text, nullable=False)     # JSON масив [[lat, lon], ...]
+    coordinates = Column(Text, nullable=False)
 
 class TacticalSensorModel(Base):
     __tablename__ = "tactical_sensors"
@@ -45,6 +44,7 @@ class DownedDroneModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     drone_id = Column(String, index=True)
+    drone_type = Column(String, default="Shahed-136 (Герань-2)")
     spawn_time = Column(DateTime(timezone=True), server_default=func.now())
     downed_time = Column(DateTime(timezone=True), server_default=func.now())
     spawn_lat = Column(Float, nullable=False)
@@ -54,6 +54,9 @@ class DownedDroneModel(Base):
     crash_lat = Column(Float, nullable=False)
     crash_lon = Column(Float, nullable=False)
     crash_zone = Column(String, default="Відкрита місцевість")
+    debris_radius_m = Column(Float, default=120.0)
+    emergency_112_called = Column(Boolean, default=False)
+    emergency_details = Column(String, default="")
     status = Column(String, default="CRASHED")
 
 class DetectionEvent(Base):

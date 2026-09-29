@@ -5,8 +5,8 @@ import {
   Polygon, Circle, Popup, useMapEvents 
 } from 'react-leaflet';
 import L from 'leaflet';
-import { Track, EWNode, TacticalZone, TacticalSensor } from '../types';
-import { Navigation, Move, Edit3, Trash2, CheckCircle2, RotateCcw, X } from 'lucide-react';
+import { Track, EWNode, TacticalZone, TacticalSensor, Emergency112Alert } from '../types';
+import { Navigation, Move, Edit3, Trash2, CheckCircle2, RotateCcw, X, Siren } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 import { Button } from './ui';
 import m from './TacticalMap.module.css';
@@ -91,27 +91,27 @@ const icons = {
     if (status === 'CRASHED') {
       return L.divIcon({
         className: 'custom-drone-crashed',
-        html: `<div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: #991b1b; border: 2px solid #f87171; border-radius: 50%; box-shadow: 0 0 15px #ef4444;">
+        html: `<div style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #991b1b; border: 2.5px solid #f87171; border-radius: 50%; box-shadow: 0 0 16px #ef4444;">
                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5">
                    <line x1="18" y1="6" x2="6" y2="18"></line>
                    <line x1="6" y1="6" x2="18" y2="18"></line>
                  </svg>
                </div>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16]
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
       });
     }
 
     const isJammed = status === 'JAMMED';
     return L.divIcon({
       className: isJammed ? 'custom-drone-jammed' : 'custom-drone-icon',
-      html: `<div style="transform: rotate(${heading}deg); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; ${isJammed ? 'filter: drop-shadow(0 0 8px #f59e0b);' : ''}">
-               <svg width="30" height="30" viewBox="0 0 24 24" fill="${isJammed ? '#f59e0b' : '#ef4444'}" stroke="#ffffff" stroke-width="1.8">
+      html: `<div style="transform: rotate(${heading}deg); width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; ${isJammed ? 'filter: drop-shadow(0 0 10px #f59e0b);' : ''}">
+               <svg width="32" height="32" viewBox="0 0 24 24" fill="${isJammed ? '#f59e0b' : '#ef4444'}" stroke="#ffffff" stroke-width="1.8">
                  <polygon points="12 2 19 21 12 17 5 21 12 2"></polygon>
                </svg>
              </div>`,
-      iconSize: [32, 32],
-      iconAnchor: [16, 16]
+      iconSize: [34, 34],
+      iconAnchor: [17, 17]
     });
   },
   ew: (isTransmitting: boolean) => createCustomIcon(
@@ -131,10 +131,6 @@ const icons = {
     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
     '#2e1065', '#a78bfa'
   ),
-  witness_report: () => createCustomIcon(
-    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f472b6" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg>`,
-    '#701a75', '#f472b6'
-  ),
   target_asset: () => createCustomIcon(
     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>`,
     '#450a0a', '#ef4444'
@@ -146,41 +142,22 @@ const icons = {
   droneUnknown: () => L.divIcon({
     className: 'custom-drone-unknown',
     html: `<div style="
-      width: 32px; 
-      height: 32px; 
+      width: 34px; 
+      height: 34px; 
       display: flex; 
       align-items: center; 
       justify-content: center; 
-      background: #dc2626; 
+      background: #b91c1c; 
       border: 2px dashed #ffffff; 
       border-radius: 50%; 
       color: #fff; 
       font-weight: 900; 
-      font-size: 16px;
-      box-shadow: 0 0 14px #ef4444;
+      font-size: 18px;
+      box-shadow: 0 0 16px #ef4444;
+      animation: pulse 1.2s infinite;
     ">?</div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16]
-  }),
-  witnessCall: () => L.divIcon({
-    className: 'custom-112-call',
-    html: `<div style="
-      width: 30px; 
-      height: 30px; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      background: #7c2d12; 
-      border: 2px solid #f97316; 
-      border-radius: 50%; 
-      box-shadow: 0 0 12px #ea580c;
-    ">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fdba74" stroke-width="2.5">
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-      </svg>
-    </div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15]
+    iconSize: [34, 34],
+    iconAnchor: [17, 17]
   }),
   zone_anchor: (zoneType: string) => {
     let border = '#f87171';
@@ -265,11 +242,7 @@ const EWNodeMarkerItem: React.FC<{
       {node.target_lead_coord && (
         <Polyline 
           positions={[memoPos, node.target_lead_coord]}
-          pathOptions={{
-            color: node.is_transmitting ? '#ef4444' : '#38bdf8',
-            weight: 2,
-            dashArray: '4, 4'
-          }}
+          pathOptions={{ color: node.is_transmitting ? '#ef4444' : '#38bdf8', weight: 2, dashArray: '4, 4' }}
         />
       )}
       <Marker position={memoPos} icon={icons.ew(node.is_transmitting)} draggable={true} eventHandlers={eventHandlers}>
@@ -277,14 +250,13 @@ const EWNodeMarkerItem: React.FC<{
           <div className={m.popup}>
             <strong className={m.toneInfo}>{node.name}</strong>
             <p>Наведення: <b>{node.azimuth}°</b></p>
-            <p>Промінь: <b>{node.beamwidth}°</b></p>
-            <p>Радіус: <b>{node.max_range} м</b></p>
-            <p>Статус: <b>{node.is_transmitting ? 'АКТИВНИЙ ВОГОНЬ (JAMMING)' : 'АВТОСУПРОВІД'}</b></p>
+            <p>Промінь: <b>{node.beamwidth}°</b> | Дальність: <b>{node.max_range}м</b></p>
+            <p>Статус: <b>{node.is_transmitting ? 'АКТИВНЕ ПРИДУШЕННЯ' : 'АВТОСУПРОВІД'}</b></p>
             <div className={m.popupActions}>
-              <Button variant="default" onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'ew', data: node }); }}>
+              <Button variant="default" onClick={() => onEditObject({ type: 'ew', data: node })}>
                 <Edit3 size={12} /> Редагувати
               </Button>
-              <Button variant="danger" onClick={(e) => { e.stopPropagation(); onDeleteEW(node.id); }}>
+              <Button variant="danger" onClick={() => onDeleteEW(node.id)}>
                 <Trash2 size={12} />
               </Button>
             </div>
@@ -306,7 +278,6 @@ const SensorMarkerItem: React.FC<{
 
   let icon = icons.camera();
   let circleColor = '#34d399';
-
   if (sensor.sensor_type === 'acoustic') {
     icon = icons.acoustic();
     circleColor = '#fbbf24';
@@ -316,13 +287,9 @@ const SensorMarkerItem: React.FC<{
   } else if (sensor.sensor_type === 'observation_post') {
     icon = icons.observation_post();
     circleColor = sensor.detection_radius > 2000 ? '#a855f7' : '#c084fc';
-  }
-  else if (sensor.sensor_type === 'witness_report') {
-    icon = icons.witness_report();
-    circleColor = '#f472b6';
   } else if (sensor.sensor_type === 'target_asset') {
     icon = icons.target_asset();
-    circleColor = '#f87171';
+    circleColor = '#ef4444';
   }
 
   const eventHandlers = useMemo(
@@ -339,7 +306,11 @@ const SensorMarkerItem: React.FC<{
 
   return (
     <>
-      <Circle center={memoPos} radius={sensor.detection_radius} pathOptions={{ color: circleColor, fillColor: circleColor, fillOpacity: 0.08, weight: 1, dashArray: '3, 6' }} />
+      <Circle 
+        center={memoPos} 
+        radius={sensor.detection_radius} 
+        pathOptions={{ color: circleColor, fillColor: circleColor, fillOpacity: 0.08, weight: 1, dashArray: '3, 6' }} 
+      />
       <Marker position={memoPos} icon={icon} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
           <div className={m.popup}>
@@ -348,10 +319,10 @@ const SensorMarkerItem: React.FC<{
             <p>Радіус: <b>{sensor.detection_radius} м</b></p>
             {sensor.description && <p className={m.toneDim}>{sensor.description}</p>}
             <div className={m.popupActions}>
-              <Button variant="default" onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'sensor', data: sensor }); }}>
+              <Button variant="default" onClick={() => onEditObject({ type: 'sensor', data: sensor })}>
                 <Edit3 size={12} /> Редагувати
               </Button>
-              <Button variant="danger" onClick={(e) => { e.stopPropagation(); onDeleteSensor(sensor.id); }}>
+              <Button variant="danger" onClick={() => onDeleteSensor(sensor.id)}>
                 <Trash2 size={12} />
               </Button>
             </div>
@@ -375,7 +346,6 @@ const ZoneItem: React.FC<{
   let strokeColor = '#ef4444';
   let fillColor = '#b91c1c';
   let title = 'ЧЕРВОНА ЗОНА (ЗАБОРОНЕНО)';
-
   if (zone.zone_type === 'safe') {
     strokeColor = '#10b981';
     fillColor = '#059669';
@@ -423,12 +393,11 @@ const ZoneItem: React.FC<{
           <div className={m.popup}>
             <strong style={{ color: strokeColor }}>{title}</strong>
             <p><b>{zone.name}</b></p>
-            <p className={m.toneDim}>Вершин контуру: {zone.coordinates.length}</p>
             <div className={m.popupActions}>
-              <Button variant="default" onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'zone', data: zone }); }}>
+              <Button variant="default" onClick={() => onEditObject({ type: 'zone', data: zone })}>
                 <Edit3 size={12} /> Редагувати
               </Button>
-              <Button variant="danger" onClick={(e) => { e.stopPropagation(); onDeleteZone(zone.id); }}>
+              <Button variant="danger" onClick={() => onDeleteZone(zone.id)}>
                 <Trash2 size={12} />
               </Button>
             </div>
@@ -445,6 +414,7 @@ interface Props {
   ewNodes: EWNode[];
   zones: TacticalZone[];
   sensors: TacticalSensor[];
+  emergency112Alert?: Emergency112Alert | null;
   isDrawingZone: boolean;
   drawingPoints: [number, number][];
   onAddDrawingPoint: (lat: number, lon: number) => void;
@@ -465,7 +435,7 @@ interface Props {
 const MAP_KEY = (import.meta as any).env?.VITE_MAP_API_KEY || '';
 
 export const TacticalMap: React.FC<Props> = ({
-  dark, tracks, ewNodes, zones, sensors, 
+  dark, tracks, ewNodes, zones, sensors, emergency112Alert,
   isDrawingZone, drawingPoints, onAddDrawingPoint, onFinishDrawingZone, onCancelDrawingZone, onUndoDrawingPoint,
   onMapClick, onDeleteZone, onDeleteSensor, onDeleteEW, onEditObject,
   onDragStart, onCommitMoveEW, onCommitMoveSensor, onCommitMoveZone
@@ -499,6 +469,35 @@ export const TacticalMap: React.FC<Props> = ({
 
   return (
     <div className={m.wrap}>
+      {/* ПОВІДОМЛЕННЯ ПРО ВИКЛИК 112 / ДСНС ПРИ ПАДІННІ В ЧЕРВОНУ/ПОМАРАНЧЕВУ ЗОНУ */}
+      {emergency112Alert && emergency112Alert.called && (
+        <div style={{
+          position: 'absolute',
+          top: 14,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 600,
+          background: 'linear-gradient(135deg, #7f1d1d, #991b1b)',
+          border: '2px solid #ef4444',
+          borderRadius: 8,
+          padding: '10px 16px',
+          color: '#ffffff',
+          boxShadow: '0 0 25px rgba(239, 68, 68, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          maxWidth: 620
+        }}>
+          <Siren size={28} color="#fca5a5" />
+          <div style={{ fontSize: '0.8rem', lineHeight: 1.35 }}>
+            <strong style={{ display: 'block', color: '#fef08a', letterSpacing: '0.04em' }}>
+              🚨 СЛУЖБА 112: ВИКЛИК АВАРІЙНИХ ПІДРОЗДІЛІВ ДСНС
+            </strong>
+            <span>{emergency112Alert.message}</span>
+          </div>
+        </div>
+      )}
+
       {/* ПАНЕЛЬ УПРАВЛІННЯ РЕЖИМОМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ */}
       {isDrawingZone && (
         <div className={m.drawBar}>
@@ -565,19 +564,19 @@ export const TacticalMap: React.FC<Props> = ({
           </Polygon>
         ))}
 
-        {/* ТАКТИЧНІ РАЙОНИ ТА ЗОНИ ВІЛЬНОЇ ФОРМИ */}
+        {/* ТАКТИЧНІ РАЙОНИ ТА ЗОНИ ВІЛЬНОЇ ФОРМИ З ПІДТРИМКОЮ ПЕРЕТЯГУВАННЯ */}
         {zones.map((zone) => (
           <ZoneItem 
-            key={`zone-${zone.id}`} 
-            zone={zone} 
-            onDragStart={onDragStart} 
-            onCommitMoveZone={onCommitMoveZone} 
-            onEditObject={onEditObject} 
-            onDeleteZone={onDeleteZone} 
+            key={`zone-${zone.id}`}
+            zone={zone}
+            onDragStart={onDragStart}
+            onCommitMoveZone={onCommitMoveZone}
+            onEditObject={onEditObject}
+            onDeleteZone={onDeleteZone}
           />
         ))}
 
-        {/* ПЕРЕДПРОГЛЯД ПОЛІГОНУ, ЩО МАЛЮЄТЬСЯ В ЦЕЙ МОМЕНТ */}
+        {/* ПЕРЕДПРОГЛЯД ПОЛІГОНУ ТА ВЕРШИН, ЩО МАЛЮЮТЬСЯ */}
         {isDrawingZone && drawingPoints.length > 0 && (
           <>
             <Polyline 
@@ -590,28 +589,31 @@ export const TacticalMap: React.FC<Props> = ({
           </>
         )}
 
+        {/* СЕНСОРИ З ПІДТРИМКОЮ ПЕРЕТЯГУВАННЯ */}
         {sensors.map((sensor) => (
-          <SensorMarkerItem 
-            key={`sensor-${sensor.id}`} 
-            sensor={sensor} 
-            onDragStart={onDragStart} 
-            onCommitMoveSensor={onCommitMoveSensor} 
-            onEditObject={onEditObject} 
-            onDeleteSensor={onDeleteSensor} 
+          <SensorMarkerItem
+            key={`sensor-${sensor.id}`}
+            sensor={sensor}
+            onDragStart={onDragStart}
+            onCommitMoveSensor={onCommitMoveSensor}
+            onEditObject={onEditObject}
+            onDeleteSensor={onDeleteSensor}
           />
         ))}
 
+        {/* КОМПЛЕКСИ РЕБ З ПІДТРИМКОЮ ПЕРЕТЯГУВАННЯ */}
         {ewNodes.map((node) => (
-          <EWNodeMarkerItem 
-            key={`ew-${node.id}`} 
-            node={node} 
-            onDragStart={onDragStart} 
-            onCommitMoveEW={onCommitMoveEW} 
-            onEditObject={onEditObject} 
-            onDeleteEW={onDeleteEW} 
+          <EWNodeMarkerItem
+            key={`ew-${node.id}`}
+            node={node}
+            onDragStart={onDragStart}
+            onCommitMoveEW={onCommitMoveEW}
+            onEditObject={onEditObject}
+            onDeleteEW={onDeleteEW}
           />
         ))}
 
+        {/* ПОВІТРЯНІ ЦІЛІ (ВІДОБРАЖАЮТЬСЯ ТІЛЬКИ ПІСЛЯ ВИЯВЛЕННЯ) */}
         {tracks.map((target) => {
           const isInitialContact = target.detection_stage === 'INITIAL_CONTACT' || target.status === 'DETECTING';
 
@@ -624,14 +626,14 @@ export const TacticalMap: React.FC<Props> = ({
                 <Popup>
                   <div className={m.popup}>
                     <strong className={isInitialContact ? m.toneCaution : target.status === 'CRASHED' ? m.toneDanger : m.toneInfo}>
-                      {target.id} {isInitialContact ? '⚠️ (ПЕРВИННИЙ КОНТАКТ)' : (target.status === 'CRASHED' ? '💥 (ЗБИТО)' : '🎯 (СУПРОВІД)')}
+                      {target.id} — {target.drone_type || 'БПЛА'} {isInitialContact ? '⚠️ (1-Й КОНТАКТ)' : (target.status === 'CRASHED' ? '💥 (ЗБИТО)' : '🎯 (СУПРОВІД)')}
                     </strong>
                     <p>Джерело: <b>{target.last_sensor || 'Сенсор'}</b></p>
-                    <p>Швидкість: <b>{target.speed !== null ? `${(target.speed * 3.6).toFixed(0)} км/год` : 'НЕВІДОМО (?)'}</b></p>
-                    <p>Курс / Азимут: <b>{target.heading !== null ? `${target.heading.toFixed(0)}°` : 'НЕВІДОМО (?)'}</b></p>
+                    <p>Швидкість: <b>{target.speed !== null ? `${(target.speed * 3.6).toFixed(0)} км/год` : 'НЕ РОЗРАХОВАНО (?)'}</b></p>
+                    <p>Курс: <b>{target.heading !== null ? `${target.heading.toFixed(0)}°` : 'НЕ РОЗРАХОВАНО (?)'}</b></p>
                     {isInitialContact && (
                       <p className={m.popupNote}>
-                        Очікується 2-й контакт (камера/мікрофон/МВГ) для розрахунку вектора польоту
+                        Очікується 2-й контакт (камера/мікрофон/МВГ) для визначення кінематики польоту
                       </p>
                     )}
                     {target.crash_safety !== null && target.crash_safety !== undefined && (
@@ -641,7 +643,22 @@ export const TacticalMap: React.FC<Props> = ({
                 </Popup>
               </Marker>
 
-              {/* Прогнозований вектор та еліпс малюються тільки коли курс розраховано */}
+              {/* РОЗЛІТ УЛАМКІВ ПРИ ЗБИТТІ ТА ЗОНА ВИКЛИКУ 112 */}
+              {target.status === 'CRASHED' && (
+                <Circle
+                  center={[target.lat, target.lon]}
+                  radius={160}
+                  pathOptions={{
+                    color: '#ef4444',
+                    fillColor: '#b91c1c',
+                    fillOpacity: 0.35,
+                    weight: 2,
+                    dashArray: '4, 4'
+                  }}
+                />
+              )}
+
+              {/* Прогнозований вектор та еліпс падіння */}
               {!isInitialContact && target.status !== 'CRASHED' && target.predicted_30s && target.predicted_60s && (
                 <>
                   <Polyline 
@@ -682,11 +699,11 @@ export const TacticalMap: React.FC<Props> = ({
         </div>
         <div className={m.legendRow}>
           <span className={`${m.swatch} ${m.swCaution}`} />
-          <b>Помаранчева зона (40-60%)</b> — Буфер, утриматись
+          <b>Помаранчева зона (40-60%)</b> — Буфер, виклик 112 при падінні
         </div>
         <div className={m.legendRow}>
           <span className={`${m.swatch} ${m.swDanger}`} />
-          <b>Червона зона (&lt;40%)</b> — Місто/люди, падіння заборонено
+          <b>Червона зона (&lt;40%)</b> — Заборонено, аварійний виклик 112
         </div>
       </div>
 

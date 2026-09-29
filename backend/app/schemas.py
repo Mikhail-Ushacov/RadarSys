@@ -38,9 +38,6 @@ class TacticalZoneCreate(BaseModel):
     def validate_coordinates(cls, v):
         if len(v) < 3:
             raise ValueError("Зона повинна містити щонайменше 3 координатні точки")
-        for pt in v:
-            if len(pt) < 2:
-                raise ValueError("Кожна точка повинна мати [lat, lon]")
         return v
 
 class TacticalZoneUpdate(BaseModel):
@@ -74,6 +71,7 @@ class ArmEWCommand(BaseModel):
 class DownedDroneRead(BaseModel):
     id: int
     drone_id: str
+    drone_type: str
     spawn_time: str
     downed_time: str
     spawn_coords: str
@@ -81,6 +79,9 @@ class DownedDroneRead(BaseModel):
     interceptor_name: str
     crash_coords: str
     crash_zone: str
+    debris_radius_m: float
+    emergency_112_called: bool
+    emergency_details: str
     status: str
 
     class Config:

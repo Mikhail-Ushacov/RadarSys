@@ -4,7 +4,15 @@ import { TacticalMap } from './components/TacticalMap';
 import { TargetHUD } from './components/TargetHUD';
 import { TacticalObjectModal, EditableObject } from './components/TacticalObjectModal';
 import { InterceptionHistoryPage } from './components/InterceptionHistoryPage';
-import { TacticalUpdate, Track, EWNode, TacticalZone, TacticalSensor, DownedDroneDetailed } from './types';
+import { 
+  TacticalUpdate, 
+  Track, 
+  EWNode, 
+  TacticalZone, 
+  TacticalSensor, 
+  DownedDroneDetailed, 
+  Emergency112Alert 
+} from './types';
 import { Map as MapIcon, History as HistoryIcon, Sun, Moon } from 'lucide-react';
 import { Badge } from './components/ui';
 import s from './App.module.css';
@@ -23,7 +31,8 @@ export const App: React.FC = () => {
   const [autoTracking, setAutoTracking] = useState<boolean>(true);
   const [emergencyOverride, setEmergencyOverride] = useState<boolean>(false);
   const [threatInfo, setThreatInfo] = useState<string | null>(null);
-  
+  const [emergency112Alert, setEmergency112Alert] = useState<Emergency112Alert | null>(null);
+
   const [allowMapClickToAdd, setAllowMapClickToAdd] = useState<boolean>(false);
   const [isDrawingZone, setIsDrawingZone] = useState<boolean>(false);
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
@@ -67,6 +76,7 @@ export const App: React.FC = () => {
         setThreatInfo(data.threat_info || null);
         if (data.recent_downed) setRecentDowned(data.recent_downed);
         if (data.total_downed_count !== undefined) setTotalDownedCount(data.total_downed_count);
+        if (data.emergency_112_alert !== undefined) setEmergency112Alert(data.emergency_112_alert);
 
         const now = Date.now();
 
@@ -333,6 +343,7 @@ export const App: React.FC = () => {
               onCommitMoveEW={handleCommitMoveEW}
               onCommitMoveSensor={handleCommitMoveSensor}
               onCommitMoveZone={handleCommitMoveZone}
+              emergency112Alert={emergency112Alert}
             />
           </div>
 

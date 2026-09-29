@@ -50,7 +50,6 @@ SETTLEMENT_HUBS: List[Dict[str, Any]] = [
     {"name": "с. Лютіж", "lat": 50.6850, "lon": 30.3980, "type": "suburb_edge"},
     {"name": "м. Бровари", "lat": 50.5120, "lon": 30.7920, "type": "suburb"},
     {"name": "с. Зазим'я / Погреби", "lat": 50.5650, "lon": 30.6720, "type": "suburb"},
-    {"name": "м. Бориспіль", "lat": 50.3550, "lon": 30.9520, "type": "suburb"},
     {"name": "м. Ірпінь", "lat": 50.5210, "lon": 30.2450, "type": "suburb"},
     {"name": "м. Буча", "lat": 50.5520, "lon": 30.2180, "type": "suburb"},
     {"name": "смт Гостомель", "lat": 50.5750, "lon": 30.2680, "type": "suburb"},

@@ -21,6 +21,7 @@ from app.core.risk_h3 import safety_at_enu as risk_safety_at_enu
 from app.hardware.pelco import PelcoDController
 from app.services.simulation import DroneSimulation
 from app.services.connection_manager import ws_manager
+from app.seed.settlement_sensors import SETTLEMENT_HUBS
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,18 @@ class C2Engine:
         self._zone_cache: Dict = {"fp": None, "safe": [], "caution": [], "danger": [], "items": []}
         self._burst_generations: Dict[int, int] = {}
         self._recent_events: List[dict] = []
+        self._hub_enu_cache: List[dict] = []
+
+        # Попередній розрахунок координат населених пунктів в ENU
+        for hub in SETTLEMENT_HUBS:
+            hx, hy, _ = latlon_to_enu(hub["lat"], hub["lon"], 0.0)
+            self._hub_enu_cache.append({
+                "name": hub["name"],
+                "lat": hub["lat"],
+                "lon": hub["lon"],
+                "x": hx,
+                "y": hy
+            })
 
     def sanitize(self, o):
         if isinstance(o, float):
@@ -92,11 +105,12 @@ class C2Engine:
                 "auto_tracking": self.auto_tracking_enabled,
                 "emergency_override": False,
                 "threat_info": None,
+                "emergency_112_alert": None,
                 "recent_downed": [],
                 "total_downed_count": 0
             }
 
-            self._recent_events = [ev for ev in self._recent_events if now - ev.get("time", 0) < 15.0]
+            self._recent_events = [ev for ev in self._recent_events if now - ev.get("time", 0) < 18.0]
             payload["active_events"] = self._recent_events
 
             async with async_session() as session:
@@ -145,9 +159,11 @@ class C2Engine:
                         "coordinates": json.loads(z.coordinates)
                     })
 
-                # 2. Сенсори та критичні активи
+                # 2. Сенсори та критичні активи (ОКІ)
                 q_sensors = await session.execute(select(TacticalSensorModel))
                 db_sensors = q_sensors.scalars().all()
+
+                ci_assets = []
                 for s in db_sensors:
                     payload["sensors"].append({
                         "id": s.id,
@@ -158,30 +174,17 @@ class C2Engine:
                         "detection_radius": s.detection_radius,
                         "description": s.description
                     })
-                ci_assets = []
-                for s in db_sensors:
                     if s.sensor_type == "target_asset":
-                        continue
-                    sx, sy, _ = latlon_to_enu(s.lat, s.lon, s.alt)
-                    dist_sensor = math.hypot(self.drone.x - sx, self.drone.y - sy)
-                    if dist_sensor <= s.detection_radius:
-                        drone_detected_this_frame = True
-                        detected_by_name = s.name
-                        detected_type = s.sensor_type
-                        if s.sensor_type == "camera":
-                            detection_note = f"Фотофіксація БПЛА оптичною камерою ({int(dist_sensor)}м)"
-                        elif s.sensor_type == "acoustic":
-                            detection_note = f"Акустичний спектр ДВЗ зафіксовано датчиком ({int(dist_sensor)}м)"
-                        elif s.sensor_type in ("rf_24ghz", "rf_detector"):
-                            detection_note = f"Радіоперехоплення 2.4 ГГц: виявлено телеметрію дрона ({int(dist_sensor)}м)"
-                        elif s.sensor_type == "observation_post":
-                            if s.detection_radius > 2000.0:
-                                detection_note = f"Візуальний контакт МВГ (висотний сектор) за азимутом ({int(dist_sensor)}м)"
-                            else:
-                                detection_note = f"Локальний візуальний контакт спостережного поста ({int(dist_sensor)}м)"
-                        break
+                        cx, cy, _ = latlon_to_enu(s.lat, s.lon, s.alt)
+                        ci_assets.append({
+                            "id": s.id,
+                            "name": s.name,
+                            "x": cx,
+                            "y": cy,
+                            "radius": s.detection_radius
+                        })
 
-                # 3. Сенсорне перекриття
+                # 3. Виявлення сенсорами відповідно до специфіки БПЛА
                 cur_lat, cur_lon, cur_alt = enu_to_latlon(self.drone.x, self.drone.y, self.drone.z)
                 drone_detected_this_frame = False
                 detected_by_name = None
@@ -192,54 +195,99 @@ class C2Engine:
                     if s.sensor_type == "target_asset":
                         continue
                     sx, sy, _ = latlon_to_enu(s.lat, s.lon, s.alt)
-                    dist_sensor = math.hypot(self.drone.x - sx, self.drone.y - sy)
-                    if dist_sensor <= s.detection_radius:
-                        drone_detected_this_frame = True
-                        detected_by_name = s.name
-                        detected_type = s.sensor_type
-                        if s.sensor_type == "camera":
-                            detection_note = f"Фотофіксація БПЛА оптичною камерою ({int(dist_sensor)}м)"
-                        elif s.sensor_type == "acoustic":
-                            detection_note = f"Акустичний спектр ДВЗ зафіксовано датчиком ({int(dist_sensor)}м)"
-                        elif s.sensor_type == "observation_post":
-                            detection_note = f"Візуальний контакт МВГ за азимутом ({int(dist_sensor)}м)"
-                        break
+                    dist_2d = math.hypot(self.drone.x - sx, self.drone.y - sy)
 
-                current_safety = risk_safety_at_enu(
-                    self.drone.x, self.drone.y, cur_lat, cur_lon,
-                    safe_shapely, caution_shapely, danger_shapely, ci_assets
-                )
-                pop_density = max(0.0, min(1.0, 1.0 - current_safety))
+                    # Розрахунок ефективного радіусу під фізику конкретного дрона
+                    if s.sensor_type == "camera":
+                        # Оптична камера: залежить від оптичної помітності БПЛА
+                        effective_r = s.detection_radius * self.drone.optical_visibility
+                        if dist_2d <= effective_r and self.drone.z <= 1200.0:
+                            drone_detected_this_frame = True
+                            detected_by_name = s.name
+                            detected_type = "camera"
+                            detection_note = f"Оптична фіксація силуету {self.drone.drone_type} камерою ({int(dist_2d)}м)"
+                            break
 
-                if pop_density > 0.35 and (now - self.drone.last_112_time > 7.0):
-                    call_chance = (pop_density - 0.30) * 0.65
+                    elif s.sensor_type == "acoustic":
+                        # Акустичний датчик: сильно залежить від шуму мотора
+                        effective_r = s.detection_radius * self.drone.acoustic_loudness
+                        if self.drone.z > 800.0:
+                            effective_r *= (800.0 / self.drone.z)
+                        if dist_2d <= effective_r:
+                            drone_detected_this_frame = True
+                            detected_by_name = s.name
+                            detected_type = "acoustic"
+                            detection_note = f"Спектр ДВЗ {self.drone.drone_type} мікрофоном ({int(dist_2d)}м)"
+                            break
+
+                    elif s.sensor_type in ("rf_24ghz", "rf_detector"):
+                        # RF-датчик: фіксує ТІЛЬКИ дрони з активним радіоканалом!
+                        if self.drone.rf_emission and dist_2d <= s.detection_radius:
+                            drone_detected_this_frame = True
+                            detected_by_name = s.name
+                            detected_type = "rf_24ghz"
+                            detection_note = f"Радіоперехоплення телеметрії 2.4 ГГц {self.drone.drone_type} ({int(dist_2d)}м)"
+                            break
+
+                    elif s.sensor_type == "observation_post":
+                        # МВГ / Спостережний пост
+                        effective_r = s.detection_radius * self.drone.optical_visibility
+                        if dist_2d <= effective_r:
+                            drone_detected_this_frame = True
+                            detected_by_name = s.name
+                            detected_type = "observation_post"
+                            detection_note = f"Візуальний контакт МВГ за азимутом ({int(dist_2d)}м)"
+                            break
+
+                # 4. Дзвінки 112 (СУВОРО В НАСЕЛЕНИХ ПУНКТАХ + РАНДОМНИЙ EVENT)
+                # Перевіряємо, чи дрон пролітає над одним із населених пунктів
+                nearest_hub = None
+                min_hub_dist = float('inf')
+                for hub in self._hub_enu_cache:
+                    h_dist = math.hypot(self.drone.x - hub["x"], self.drone.y - hub["y"])
+                    if h_dist < min_hub_dist:
+                        min_hub_dist = h_dist
+                        nearest_hub = hub
+
+                # Дзвінок можливий ТІЛЬКИ над населеним пунктом (радіус <= 2500 м)
+                if nearest_hub and min_hub_dist <= 2500.0 and (now - self.drone.last_112_time > 8.0):
+                    # Шанс дзвінка залежить від гучності шуму двигуна БПЛА
+                    call_chance = 0.22 * self.drone.acoustic_loudness
                     if random.random() < call_chance:
                         self.drone.last_112_time = now
                         drone_detected_this_frame = True
-                        district_label = "Спальний район міста" if pop_density > 0.6 else "Приміська забудова"
-                        detected_by_name = f"Дзвінок 112 ({district_label})"
+                        detected_by_name = f"Дзвінок 112 ({nearest_hub['name']})"
                         detected_type = "witness_report"
-                        detection_note = f"Громадяни повідомляють про звук низьковисотного БПЛА (щільність {int(pop_density*100)}%)"
 
-                        call_lat = cur_lat + random.uniform(-0.003, 0.003)
-                        call_lon = cur_lon + random.uniform(-0.003, 0.003)
+                        # Невеликий шанс (20%) на детальне розпізнавання силуету
+                        detailed_witness = random.random() < 0.20
+                        if detailed_witness:
+                            detection_note = f"Очевидець ({nearest_hub['name']}): візуально спостерігає силует {self.drone.drone_type}"
+                            call_msg = f"Очевидець візуально бачить дельта-крило {self.drone.drone_type}"
+                        else:
+                            detection_note = f"Очевидець ({nearest_hub['name']}): повідомляє про характерний гуркіт дрона (візуально не видно)"
+                            call_msg = "Громадяни повідомляють про звук мопеда/ДВЗ на низькій висоті"
+
+                        call_lat = nearest_hub["lat"] + random.uniform(-0.003, 0.003)
+                        call_lon = nearest_hub["lon"] + random.uniform(-0.003, 0.003)
                         self._recent_events.append({
                             "id": int(now * 1000),
                             "type": "witness_call",
-                            "title": "СИГНАЛ 112: ЗВУК ДВИГУНА БПЛА",
-                            "message": f"Очевидці ({district_label}) чують характерний гуркіт дрона",
+                            "title": f"СИГНАЛ 112: {nearest_hub['name'].upper()}",
+                            "message": call_msg,
                             "lat": call_lat,
                             "lon": call_lon,
                             "time": now
                         })
 
+                # Запис точки контакту в історію засічок дрона
                 if drone_detected_this_frame and self.drone.status != "CRASHED":
-                    if (not self.drone.detection_history) or (now - self.drone.detection_history[-1]["t"] >= 1.8):
-                        noise_sigma = 8.0 if detected_type == "camera" else (22.0 if detected_type == "acoustic" else 40.0)
+                    if (not self.drone.detection_history) or (now - self.drone.detection_history[-1]["t"] >= 1.6):
+                        noise_sigma = 8.0 if detected_type == "camera" else (20.0 if detected_type == "acoustic" else 35.0)
                         self.drone.detection_history.append({
                             "x": self.drone.x + random.gauss(0, noise_sigma),
                             "y": self.drone.y + random.gauss(0, noise_sigma),
-                            "z": self.drone.z + random.gauss(0, 4.0),
+                            "z": self.drone.z + random.gauss(0, 5.0),
                             "t": now,
                             "sensor": detected_by_name,
                             "type": detected_type,
@@ -248,17 +296,19 @@ class C2Engine:
                         if len(self.drone.detection_history) > 10:
                             self.drone.detection_history.pop(0)
 
-                # 4. Двоетапне оцінювання треку
+                # 5. Двоетапне супроводження (FOG OF WAR: якщо 0 засічок — дрон не передається!)
                 target_key = self.drone.id
                 num_detections = len(self.drone.detection_history)
                 primary_target = None
 
-                if num_detections == 1:
+                # КРОК 1: Первинний контакт (1 засічка) — курс, швидкість і ціль НЕВІДОМІ
+                if num_detections == 1 and self.drone.status != "CRASHED":
                     det = self.drone.detection_history[-1]
                     det_lat, det_lon, det_alt = enu_to_latlon(det["x"], det["y"], det["z"])
 
                     track_data = {
                         "id": target_key,
+                        "drone_type": self.drone.drone_type,
                         "status": "DETECTING",
                         "detection_stage": "INITIAL_CONTACT",
                         "detection_count": 1,
@@ -275,7 +325,6 @@ class C2Engine:
                         "predicted_60s": None,
                         "crash_point": None,
                         "crash_safety": None,
-                        "corridor_safety": None,
                         "impact_ellipse": None,
                         "is_safe_to_engage": False,
                         "is_ci_critical": False,
@@ -287,6 +336,7 @@ class C2Engine:
                     payload["tracks"].append(track_data)
                     primary_target = track_data
 
+                # КРОК 2: Другий і наступні контакти (>=2) — розрахунок кінематики, Калман, цілі та зони
                 elif num_detections >= 2:
                     p1 = self.drone.detection_history[-2]
                     p2 = self.drone.detection_history[-1]
@@ -346,6 +396,7 @@ class C2Engine:
                     except Exception:
                         ellipse_pts = []
 
+                    # Перевірка критичної близькості до ОКІ (<= 2500 м)
                     is_ci_critical, min_dist_ci, nearest_ci_name = InterceptionPlanner.evaluate_ci_proximity(
                         sx, sy, ci_assets, threshold_m=2500.0
                     )
@@ -356,10 +407,11 @@ class C2Engine:
                         timeline.append(f"{t_str} — {d_item['sensor']}: {d_item['note']}")
 
                     dist_between_last = math.hypot(p2["x"] - p1["x"], p2["y"] - p1["y"])
-                    calc_note = f"ΔS = {dist_between_last:.0f}м за {dt_meas:.1f}с -> V = {(speed*3.6):.0f} км/год"
+                    calc_note = f"ΔS={dist_between_last:.0f}м за {dt_meas:.1f}с -> V={(speed*3.6):.0f} км/год | Курс {heading:.0f}°"
 
                     track_data = {
                         "id": target_key,
+                        "drone_type": self.drone.drone_type,
                         "status": self.drone.status,
                         "detection_stage": "TRACKED",
                         "detection_count": num_detections,
@@ -386,23 +438,62 @@ class C2Engine:
                     payload["tracks"].append(track_data)
                     primary_target = track_data
 
-                # 5. Фіксація збитого дрона в БД
+                # 6. Фіксація збиття та ВИКЛИК 112 / ДСНС при падінні у червону/помаранчеву зону
                 if self.drone.status == "CRASHED" and not self.drone.downed_saved:
                     c_lat, c_lon, _ = enu_to_latlon(self.drone.x, self.drone.y, 0.0)
                     pt = Point(self.drone.x, self.drone.y)
                     crash_zone_name = "Відкрита місцевість"
+                    crash_zone_type = "safe"
 
                     for poly, zname, ztype in self._zone_cache["items"]:
                         try:
                             if poly.contains(pt):
                                 prefix = '🟢 ' if ztype == 'safe' else ('🟡 ' if ztype == 'caution' else '🔴 ')
                                 crash_zone_name = f"{prefix}{zname}"
+                                crash_zone_type = ztype
                                 break
                         except Exception:
                             continue
 
+                    # Розрахунок радіуса розльоту уламків
+                    debris_radius = round(self.drone.base_debris_radius + random.uniform(15.0, 45.0), 1)
+                    self.drone.actual_debris_radius = debris_radius
+
+                    # ПРАВИЛО: Якщо впав у червону чи помаранчеву зону — викликаємо 112/ДСНС
+                    called_112 = False
+                    emergency_note = "Утилізовано в Killbox (зелена зона). Загрози цивільній забудові немає."
+
+                    if crash_zone_type in ("danger", "caution"):
+                        called_112 = True
+                        zone_label = "ЧЕРВОНІЙ ЗОНІ (житлова забудова)" if crash_zone_type == "danger" else "ПОМАРАНЧЕВІЙ БУФЕРНІЙ ЗОНІ"
+                        emergency_note = (
+                            f"🚨 ВИКЛИК 112 / ДСНС: Уламки {self.drone.drone_type} впали у {zone_label}!\n"
+                            f"Точка: {c_lat:.5f}°, {c_lon:.5f}°. Розліт уламків ~{debris_radius}м. "
+                            f"Направлено пожежно-рятувальні підрозділи ДСНС та МОЗ!"
+                        )
+
+                        self._recent_events.append({
+                            "id": int(now * 1000),
+                            "type": "emergency_112_call",
+                            "title": "СЛУЖБА 112 / ДСНС: ПАДІННЯ УЛАМКІВ БПЛА",
+                            "message": emergency_note,
+                            "lat": c_lat,
+                            "lon": c_lon,
+                            "time": now
+                        })
+
+                        payload["emergency_112_alert"] = {
+                            "called": True,
+                            "message": emergency_note,
+                            "lat": c_lat,
+                            "lon": c_lon,
+                            "radius": debris_radius,
+                            "drone_type": self.drone.drone_type
+                        }
+
                     downed_record = DownedDroneModel(
                         drone_id=self.drone.id,
+                        drone_type=self.drone.drone_type,
                         spawn_time=self.drone.spawn_time,
                         downed_time=datetime.now(),
                         spawn_lat=self.drone.spawn_lat,
@@ -412,13 +503,16 @@ class C2Engine:
                         crash_lat=c_lat,
                         crash_lon=c_lon,
                         crash_zone=crash_zone_name,
+                        debris_radius_m=debris_radius,
+                        emergency_112_called=called_112,
+                        emergency_details=emergency_note,
                         status="CRASHED"
                     )
                     session.add(downed_record)
                     db_dirty = True
                     self.drone.downed_saved = True
 
-                # 6. Супроводження та бойова робота РЕБ
+                # 7. Супроводження та бойова робота РЕБ
                 q_nodes = await session.execute(select(EWNodeModel))
                 db_nodes = q_nodes.scalars().all()
 
@@ -461,15 +555,20 @@ class C2Engine:
                             )
                             logger.debug("pelco node=%s az=%.1f el=%.1f", node.id, target_azimuth, elevation)
 
+                    # ЛОГІКА ЗБИТТЯ:
                     if primary_target and primary_target.get("status") == "CRUISING" and primary_target.get("detection_stage") == "TRACKED":
                         want_tx = False
+
+                        # 1. ПРАВИЛО: Екстрений захист критичного об'єкта (в будь-якій зоні)
                         if primary_target["is_ci_critical"] and node.id == best_interceptor_id and node.is_armed:
                             want_tx = True
                             payload["emergency_override"] = True
-                            payload["threat_info"] = f"CRITICAL ASSET DEFENSE: Захист {primary_target['nearest_ci']} ({primary_target['ci_distance']}м)"
+                            payload["threat_info"] = f"🚨 ЕКСТРЕНИЙ ЗАХИСТ ОКІ: {primary_target['nearest_ci']} ({primary_target['ci_distance']}м) — збиття у будь-якій зоні!"
+
+                        # 2. ПРАВИЛО: Збиття над зеленою (Killbox) або помаранчевою (буферною) зоною
                         elif self.auto_tracking_enabled and primary_target["is_safe_to_engage"] and node.id == best_interceptor_id and node.is_armed:
                             want_tx = True
-                            payload["threat_info"] = f"SURGICAL INTERCEPTION: {node.name} глушить ціль над безпечною зоною"
+                            payload["threat_info"] = f"🎯 ХІРУРГІЧНЕ ПРИДУШЕННЯ: {node.name} глушить {self.drone.drone_type} над зеленою зоною"
 
                         if node.is_transmitting != want_tx and want_tx:
                             node.is_transmitting = True
@@ -487,7 +586,7 @@ class C2Engine:
                         angle_diff = abs((target_azimuth - node.current_azimuth + 180.0) % 360.0 - 180.0)
                         if distance <= node.max_range and angle_diff <= (node.beamwidth / 2.0 + 4.0):
                             self.drone.apply_jamming(node.name)
-                            payload["threat_info"] = f"⚡ ВЛУЧАННЯ РЕБ: {node.name} зірвав наведення {self.drone.id}!"
+                            payload["threat_info"] = f"⚡ ВЛУЧАННЯ РЕБ: {node.name} зірвав наведення {self.drone.id} ({self.drone.drone_type})!"
 
                     lead_coord = None
                     if (has_lead and lead_x is not None and lead_y is not None and lead_z is not None
@@ -508,7 +607,7 @@ class C2Engine:
                         "target_lead_coord": lead_coord
                     })
 
-                # 7. Останні збиті дрони
+                # 8. Останні збиті дрони
                 q_downed = await session.execute(
                     select(DownedDroneModel).order_by(desc(DownedDroneModel.id)).limit(5)
                 )
@@ -517,6 +616,7 @@ class C2Engine:
                     payload["recent_downed"].append({
                         "id": row.id,
                         "drone_id": row.drone_id,
+                        "drone_type": getattr(row, "drone_type", "Shahed-136 (Герань-2)"),
                         "spawn_time": row.spawn_time.strftime("%d.%m.%Y %H:%M:%S") if row.spawn_time else "-",
                         "downed_time": row.downed_time.strftime("%d.%m.%Y %H:%M:%S") if row.downed_time else "-",
                         "spawn_coords": f"{row.spawn_lat:.4f}°, {row.spawn_lon:.4f}°",
@@ -524,6 +624,9 @@ class C2Engine:
                         "interceptor_name": row.interceptor_name,
                         "crash_coords": f"{row.crash_lat:.4f}°, {row.crash_lon:.4f}°",
                         "crash_zone": row.crash_zone,
+                        "debris_radius_m": getattr(row, "debris_radius_m", 120.0),
+                        "emergency_112_called": getattr(row, "emergency_112_called", False),
+                        "emergency_details": getattr(row, "emergency_details", ""),
                         "status": row.status
                     })
 

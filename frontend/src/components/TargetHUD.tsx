@@ -1,10 +1,11 @@
+// frontend/src/components/TargetHUD.tsx
 import React from 'react';
 import { Track, EWNode, TacticalSensor, TacticalZone, DownedDroneDetailed } from '../types';
 import {
   Crosshair, Zap, Plus, Camera, Mic,
   Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3,
   Play, Square, RotateCcw, Compass,
-  AlertOctagon, History, ArrowRight, PenTool, Users, Radio
+  AlertOctagon, History, ArrowRight, PenTool, Users, Radio, Siren
 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 import { Button } from './ui/Button';
@@ -62,7 +63,7 @@ export const TargetHUD: React.FC<Props> = ({
       {threatInfo && (
         <div className={`${styles.alert}${emergencyOverride ? ` ${styles.alertCritical}` : ''}`}>
           <div className={styles.alertTitle}>
-            <AlertOctagon size={16} /> ТАКТИЧНА ДІЯ:
+            {emergencyOverride ? <Siren size={18} /> : <AlertOctagon size={16} />} ТАКТИЧНА ДІЯ:
           </div>
           <div className={styles.alertBody}>
             {threatInfo}
@@ -85,8 +86,8 @@ export const TargetHUD: React.FC<Props> = ({
           >
             {simulationActive ? <><Square size={13} /> ПАУЗА</> : <><Play size={13} /> СТАРТ</>}
           </Button>
-          <Button variant="default" onClick={onResetSimulation} title="Перезапустити випадкову появу дрона за містом">
-            <RotateCcw size={14} /> Перезапуск дрона
+          <Button variant="default" onClick={onResetSimulation} title="Запустити новий тестовий дрон за межами зони спостереження">
+            <RotateCcw size={14} /> Тестовий спавн БПЛА
           </Button>
         </div>
 
@@ -115,8 +116,9 @@ export const TargetHUD: React.FC<Props> = ({
         <Section title="Повітряна обстановка (БПЛА)" action={<span className="t-mono">{tracks.filter(t => t.status !== 'CRASHED').length}</span>}>
           {tracks.length === 0 ? (
             <div className={styles.empty}>
-              Цілей у зоні виявлення немає.<br />
-              Дрон летить за містом, очікується фіксація сенсорами або камерами...
+              Цілей у зоні спостереження не виявлено.<br />
+              <b>Дрон летить за межами міста (34-45 км).</b><br />
+              Очікується 1-й контакт з датчиків або свідків...
             </div>
           ) : (
             tracks.map((t) => {
@@ -127,19 +129,16 @@ export const TargetHUD: React.FC<Props> = ({
                 t.is_ci_critical ? 'jamming' :
                 (t.is_safe_to_engage ? 'safe' : 'danger');
               return (
-                <div
-                  key={t.id}
-                  className={styles.card}
-                >
+                <div key={t.id} className={styles.card}>
                   <div className={styles.cardHead}>
                     <span className={styles.cardTitle}>
-                      {t.id}
+                      {t.id} <small style={{ fontWeight: 400, color: 'var(--text-2)' }}>({t.drone_type})</small>
                     </span>
                     <Badge tone={tone}>
                       {t.status === 'CRASHED' ? 'ЗБИТО' :
                         t.status === 'JAMMED' ? 'ПРИДУШЕНО' :
                         isInitial ? '1-Й КОНТАКТ' :
-                        t.is_ci_critical ? 'CI CRITICAL THREAT' :
+                        t.is_ci_critical ? '🚨 ЕКСТРЕНЕ ЗБИТТЯ ОКІ' :
                         (t.is_safe_to_engage ? 'KILLBOX CLEAR' : 'NO-STRIKE ZONE')}
                     </Badge>
                   </div>
@@ -151,7 +150,7 @@ export const TargetHUD: React.FC<Props> = ({
                           <AlertTriangle size={13} /> Засічка: {t.last_sensor}
                         </div>
                         <div className={styles.note}>
-                          Вектор швидкості, курс та ціль НЕВІДОМІ. Очікується 2-й контакт для визначення кінематики.
+                          Вектор швидкості, курс та ціль НЕВІДОМІ. Очікується 2-й контакт для розрахунку кінематики.
                         </div>
                       </div>
                     ) : (
@@ -170,7 +169,7 @@ export const TargetHUD: React.FC<Props> = ({
 
                         {t.target_asset_name && (
                           <div className={styles.note}>
-                            Ймовірна ціль: <b>{t.target_asset_name}</b>
+                            Ціль атаки: <b>{t.target_asset_name}</b>
                           </div>
                         )}
 
@@ -215,11 +214,19 @@ export const TargetHUD: React.FC<Props> = ({
                     <span className={`${styles.note} t-mono`}>{d.downed_time.split(' ')[1] || d.downed_time}</span>
                   </div>
                   <div className={styles.note}>
-                    Комплекс: <b>{d.interceptor_name}</b>
+                    Тип: <b>{d.drone_type}</b>
                   </div>
                   <div className={styles.note}>
-                    Зона: {d.crash_zone}
+                    Зона падіння: {d.crash_zone}
                   </div>
+                  <div className={styles.note}>
+                    Розліт уламків: <b className="t-mono">~{d.debris_radius_m} м</b>
+                  </div>
+                  {d.emergency_112_called && (
+                    <div style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.7rem', marginTop: 3 }}>
+                      🚨 Викликано ДСНС / 112 на місце падіння
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -232,7 +239,7 @@ export const TargetHUD: React.FC<Props> = ({
 
         <Section title={`Комплекси РЕБ (${ewNodes.length})`}>
           {ewNodes.map((n) => (
-            <div key={n.id} className={`${styles.card}`}>
+            <div key={n.id} className={styles.card}>
               <div className={styles.cardHead}>
                 <span className={styles.cardTitle}>{n.name}</span>
                 <div className={styles.row}>
