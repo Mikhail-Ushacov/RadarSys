@@ -148,6 +148,16 @@ class C2Engine:
                 # 2. Сенсори та критичні активи
                 q_sensors = await session.execute(select(TacticalSensorModel))
                 db_sensors = q_sensors.scalars().all()
+                for s in db_sensors:
+                    payload["sensors"].append({
+                        "id": s.id,
+                        "name": s.name,
+                        "sensor_type": s.sensor_type,
+                        "lat": s.lat,
+                        "lon": s.lon,
+                        "detection_radius": s.detection_radius,
+                        "description": s.description
+                    })
                 ci_assets = []
                 for s in db_sensors:
                     if s.sensor_type == "target_asset":
