@@ -154,7 +154,6 @@ const icons = {
       font-weight: 900; 
       font-size: 16px;
       box-shadow: 0 0 14px #ef4444;
-      animation: pulse 1s infinite;
     ">?</div>`,
     iconSize: [32, 32],
     iconAnchor: [16, 16]
@@ -496,7 +495,7 @@ export const TacticalMap: React.FC<Props> = ({
       {isDrawingZone && (
         <div className={m.drawBar}>
           <div className={m.drawTitle}>
-            <span className={m.pulse}></span> РЕЖИМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ
+            <span>РЕЖИМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ</span>
           </div>
           <div className={m.drawDesc}>
             Клікайте по карті, щоб позначити вершини контуру. Потрібно мінімум 3 точки.
