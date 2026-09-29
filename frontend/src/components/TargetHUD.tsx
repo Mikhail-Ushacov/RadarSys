@@ -1,13 +1,17 @@
-// frontend/src/components/TargetHUD.tsx
 import React, { useState } from 'react';
 import { Track, EWNode, TacticalSensor, TacticalZone, DownedDroneDetailed } from '../types';
-import { 
-  Crosshair, Zap, Plus, Camera, Mic, 
-  Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3, 
-  MousePointerClick, Play, Square, RotateCcw, Grid, Compass, 
-  AlertOctagon, History, ArrowRight, PenTool, Sparkles, Database, Users 
+import {
+  Crosshair, Zap, Plus, Camera, Mic,
+  Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3,
+  Play, Square, RotateCcw, Grid, Compass,
+  AlertOctagon, History, ArrowRight, PenTool, Sparkles, Database, Users
 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
+import { Section } from './ui/Section';
+import { Toggle } from './ui/Toggle';
+import styles from './TargetHUD.module.css';
 
 interface Props {
   tracks: Track[];
@@ -37,10 +41,10 @@ interface Props {
   onOptimizeEW?: () => Promise<void> | void;
 }
 
-export const TargetHUD: React.FC<Props> = ({ 
+export const TargetHUD: React.FC<Props> = ({
   tracks, ewNodes, sensors, zones, recentDowned, totalDownedCount,
   allowMapClickToAdd, isDrawingZone, simulationActive, autoTracking, emergencyOverride, threatInfo,
-  onToggleMapClickToAdd, onStartDrawingZone, onGenerateFromH3, onToggleSimulation, onToggleAutoTracking, 
+  onToggleMapClickToAdd, onStartDrawingZone, onGenerateFromH3, onToggleSimulation, onToggleAutoTracking,
   onResetSimulation, onResetGrid, onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage, onSeedData,
   onOptimizeEW
 }) => {
@@ -88,249 +92,173 @@ export const TargetHUD: React.FC<Props> = ({
   };
 
   return (
-    <div className="sidebar">
-      {/* Верхня панель HUD */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #374151', paddingBottom: '0.6rem' }}>
-        <h2 style={{ fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, color: '#f8fafc' }}>
-          <Crosshair size={20} color="#38bdf8" /> SURGICAL C2 EW
+    <div className={styles.root}>
+      <div className={styles.head}>
+        <h2 className={styles.brand}>
+          <Crosshair size={20} color="var(--info)" /> SURGICAL C2 EW
         </h2>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button onClick={onOpenHistoryPage} className="btn-nav-history" title="Перейти до повного журналу збиттів">
+        <div className={styles.headActions}>
+          <Button variant="ghost" onClick={onOpenHistoryPage} title="Перейти до повного журналу збиттів">
             <History size={14} /> ЖУРНАЛ ({totalDownedCount})
-          </button>
-          <button onClick={onOpenAddModal} className="btn-add-object" title="Додати новий об'єкт або зону вручну">
+          </Button>
+          <Button variant="primary" onClick={onOpenAddModal} title="Додати новий об'єкт або зону вручну">
             <Plus size={15} /> ДОДАТИ
-          </button>
-        </div>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button 
-            onClick={handleRunOptimization}
-            disabled={isOptimizing}
-            className="btn-zone-action"
-            title="Автоматичний розрахунок оптимальних рубежів РЕБ"
-            style={{ opacity: isOptimizing ? 0.6 : 1, cursor: isOptimizing ? 'wait' : 'pointer' }}
-          >
-            <Compass size={12} color="#38bdf8" /> {isOptimizing ? 'Розрахунок...' : 'Оптимізувати РЕБ'}
-          </button>
+          </Button>
         </div>
       </div>
+      <div className={styles.headActions} style={{ marginTop: 6 }}>
+        <Button variant="default" onClick={handleRunOptimization} disabled={isOptimizing} title="Автоматичний розрахунок оптимальних рубежів РЕБ">
+          <Compass size={12} /> {isOptimizing ? 'Розрахунок...' : 'Оптимізувати РЕБ'}
+        </Button>
+      </div>
 
-      {/* Сповіщення про тактичну загрозу або перехоплення */}
       {threatInfo && (
-        <div style={{
-          marginTop: '0.6rem',
-          background: emergencyOverride ? '#7f1d1d' : '#064e3b',
-          border: `2px solid ${emergencyOverride ? '#ef4444' : '#10b981'}`,
-          borderRadius: '6px',
-          padding: '8px 10px',
-          animation: emergencyOverride ? 'blink 1s infinite' : 'none'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#fff', fontWeight: 'bold', fontSize: '0.8rem' }}>
-            <AlertOctagon size={16} color={emergencyOverride ? '#fca5a5' : '#a7f3d0'} /> ТАКТИЧНА ДІЯ:
+        <div className={`${styles.alert}${emergencyOverride ? ` ${styles.alertCritical}` : ''}`}>
+          <div className={styles.alertTitle}>
+            <AlertOctagon size={16} /> ТАКТИЧНА ДІЯ:
           </div>
-          <div style={{ fontSize: '0.72rem', color: '#f1f5f9', marginTop: '3px' }}>
+          <div className={styles.alertBody}>
             {threatInfo}
           </div>
         </div>
       )}
 
-      {/* Панель управління режимами та моделюванням */}
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '8px', marginTop: '0.6rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#94a3b8' }}>РЕЖИМ СУПРОВОДУ:</span>
-          <button
-            onClick={onToggleAutoTracking}
-            style={{
-              padding: '2px 8px', fontSize: '0.65rem', fontWeight: 'bold', borderRadius: '4px',
-              border: 'none', cursor: 'pointer', background: autoTracking ? '#0284c7' : '#475569', color: '#fff',
-              display: 'flex', alignItems: 'center', gap: '4px'
-            }}
-          >
+      <div className={styles.panel}>
+        <div className={styles.panelRow}>
+          <span className={styles.panelLabel}>РЕЖИМ СУПРОВОДУ:</span>
+          <Button variant={autoTracking ? 'primary' : 'default'} onClick={onToggleAutoTracking}>
             <Compass size={11} /> {autoTracking ? 'LEAD-ANGLE ON' : 'MANUAL'}
-          </button>
+          </Button>
         </div>
 
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button 
+        <div className={styles.btnRow}>
+          <Button
+            variant={simulationActive ? 'danger' : 'success'}
             onClick={onToggleSimulation}
-            style={{
-              flex: 1, padding: '5px', fontSize: '0.75rem', fontWeight: 'bold', borderRadius: '4px',
-              border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
-              background: simulationActive ? '#f59e0b' : '#10b981', color: 'white'
-            }}
           >
             {simulationActive ? <><Square size={13} /> ПАУЗА</> : <><Play size={13} /> СТАРТ</>}
-          </button>
-          <button 
-            onClick={onResetSimulation} 
-            title="Перезапустити випадкову появу дрона за містом" 
-            style={{ padding: '5px 8px', background: '#374151', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
-          >
+          </Button>
+          <Button variant="default" onClick={onResetSimulation} title="Перезапустити випадкову появу дрона за містом">
             <RotateCcw size={14} />
-          </button>
-          <button 
-            onClick={handleSeed} 
-            disabled={seeding}
-            title="Завантажити новий логічний Seed (камери, мікрофони, МВГ, РЕБ)" 
-            style={{ padding: '5px 8px', background: '#0284c7', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
-          >
+          </Button>
+          <Button variant="primary" onClick={handleSeed} disabled={seeding} title="Завантажити новий логічний Seed (камери, мікрофони, МВГ, РЕБ)">
             <Database size={14} />
-          </button>
-          <button 
-            onClick={onResetGrid} 
-            title="Очистити всі зони, сенсори та вузли РЕБ" 
-            style={{ padding: '5px 8px', background: '#475569', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer' }}
-          >
+          </Button>
+          <Button variant="default" onClick={onResetGrid} title="Очистити всі зони, сенсори та вузли РЕБ">
             <Grid size={14} />
-          </button>
+          </Button>
         </div>
 
-        {/* Швидкі дії із зонами */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' }}>
-          <button 
-            onClick={onGenerateFromH3} 
-            className="btn-zone-action"
+        <div className={styles.zoneGrid}>
+          <Button
+            variant="default"
+            onClick={onGenerateFromH3}
             title="Об'єднати H3 гексагони у суцільні райони безпеки"
           >
-            <Sparkles size={12} color="#38bdf8" /> Згенерувати з H3
-          </button>
-          <button 
-            onClick={onStartDrawingZone} 
-            className={`btn-zone-action ${isDrawingZone ? 'active' : ''}`}
+            <Sparkles size={12} /> Згенерувати з H3
+          </Button>
+          <Button
+            variant="default"
+            active={isDrawingZone}
+            onClick={onStartDrawingZone}
             title="Малювати зону довільної форми кліками на карті"
           >
-            <PenTool size={12} color="#34d399" /> {isDrawingZone ? 'Малювання...' : 'Вільна форма'}
-          </button>
+            <PenTool size={12} /> {isDrawingZone ? 'Малювання...' : 'Вільна форма'}
+          </Button>
         </div>
       </div>
 
-      {/* Перемикач режиму кліку на карті */}
-      <div 
-        className="click-mode-toggle-card"
-        onClick={onToggleMapClickToAdd}
-        style={{ cursor: 'pointer' }}
-        title="Натисніть, щоб увімкнути або вимкнути додавання об'єкта кліком по карті"
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#94a3b8' }}>
-          <MousePointerClick size={15} color={allowMapClickToAdd ? '#38bdf8' : '#64748b'} />
-          <span>Клік на карті (додати точку):</span>
-        </div>
-        <button 
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleMapClickToAdd(); }}
-          className={`btn-toggle-switch ${allowMapClickToAdd ? 'enabled' : 'disabled'}`}
-        >
-          {allowMapClickToAdd ? 'УВІМКНЕНО' : 'ВИМКНЕНО'}
-        </button>
+      <div className={styles.panel}>
+        <Toggle
+          on={allowMapClickToAdd}
+          onChange={onToggleMapClickToAdd}
+          label="Клік на карті (додати точку)"
+        />
       </div>
 
-      {/* Основний список із прокруткою */}
-      <div style={{ flex: 1, overflowY: 'auto', marginTop: '0.6rem' }}>
-        
-        {/* РОЗДІЛ: АКТИВНІ ЦІЛІ В ПОВІТРІ */}
-        <div style={{ marginBottom: '1.2rem' }}>
-          <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between' }}>
-            <span>Повітряна обстановка (БПЛА)</span>
-            <span style={{ color: '#38bdf8' }}>{tracks.filter(t => t.status !== 'CRASHED').length}</span>
-          </h4>
-
+      <div className={styles.scroll}>
+        <Section title="Повітряна обстановка (БПЛА)" action={<span className="t-mono">{tracks.filter(t => t.status !== 'CRASHED').length}</span>}>
           {tracks.length === 0 ? (
-            <div style={{ padding: '0.8rem', background: '#111827', borderRadius: '6px', border: '1px dashed #334155', textAlign: 'center', fontSize: '0.75rem', color: '#64748b' }}>
+            <div className={styles.empty}>
               Цілей у зоні виявлення немає.<br />
-              <span style={{ fontSize: '0.68rem', color: '#475569' }}>
-                Дрон летить за містом, очікується фіксація сенсорами або камерами...
-              </span>
+              Дрон летить за містом, очікується фіксація сенсорами або камерами...
             </div>
           ) : (
             tracks.map((t) => {
               const isInitial = t.detection_stage === 'INITIAL_CONTACT' || t.status === 'DETECTING';
+              const tone = t.status === 'CRASHED' ? 'danger' :
+                t.status === 'JAMMED' ? 'armed' :
+                isInitial ? 'caution' :
+                t.is_ci_critical ? 'jamming' :
+                (t.is_safe_to_engage ? 'safe' : 'danger');
+              const cardTone = t.status === 'CRASHED' || (!t.is_safe_to_engage && !isInitial && t.status !== 'JAMMED') ? '' :
+                (t.status === 'JAMMED' || isInitial) ? ` ${styles.trackCaution}` :
+                t.is_ci_critical ? '' : ` ${styles.trackSafe}`;
               return (
-                <div 
-                  key={t.id} 
-                  style={{ 
-                    background: '#1f2937', 
-                    padding: '0.6rem', 
-                    borderRadius: '6px', 
-                    marginBottom: '0.5rem', 
-                    borderLeft: `4px solid ${
-                      t.status === 'CRASHED' ? '#ef4444' :
-                      t.status === 'JAMMED' ? '#f59e0b' :
-                      isInitial ? '#f59e0b' :
-                      t.is_ci_critical ? '#dc2626' : (t.is_safe_to_engage ? '#10b981' : '#ef4444')
-                    }` 
-                  }}
+                <div
+                  key={t.id}
+                  className={`${styles.card} ${styles.trackCard}${cardTone}`}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 'bold', color: t.status === 'CRASHED' ? '#ef4444' : '#f87171', fontSize: '0.85rem' }}>
+                  <div className={styles.cardHead}>
+                    <span className={styles.cardTitle}>
                       {t.id}
                     </span>
-                    <span className={`badge ${
-                      t.status === 'CRASHED' ? 'badge-danger' :
-                      t.status === 'JAMMED' ? 'badge-armed' :
-                      isInitial ? 'badge-caution' :
-                      t.is_ci_critical ? 'badge-jamming' :
-                      (t.is_safe_to_engage ? 'badge-safe' : 'badge-danger')
-                    }`}>
-                      {t.status === 'CRASHED' ? '💥 ЗБИТО' :
-                       t.status === 'JAMMED' ? '⚡ ПРИДУШЕНО' :
-                       isInitial ? '⚠️ 1-Й КОНТАКТ' :
-                       t.is_ci_critical ? 'CI CRITICAL THREAT' :
-                       (t.is_safe_to_engage ? 'KILLBOX CLEAR' : 'NO-STRIKE ZONE')}
-                    </span>
+                    <Badge tone={tone}>
+                      {t.status === 'CRASHED' ? 'ЗБИТО' :
+                        t.status === 'JAMMED' ? 'ПРИДУШЕНО' :
+                        isInitial ? '1-Й КОНТАКТ' :
+                        t.is_ci_critical ? 'CI CRITICAL THREAT' :
+                        (t.is_safe_to_engage ? 'KILLBOX CLEAR' : 'NO-STRIKE ZONE')}
+                    </Badge>
                   </div>
 
-                  <div style={{ fontSize: '0.75rem', marginTop: '0.4rem', color: '#cbd5e1' }}>
+                  <div className={styles.cardBody}>
                     {isInitial ? (
-                      /* СТАДІЯ 1: Первинний контакт */
-                      <div style={{ background: '#451a03', padding: '6px', borderRadius: '4px', border: '1px dashed #f59e0b', color: '#fde047' }}>
+                      <div className={styles.kv}>
                         <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <AlertTriangle size={13} color="#f59e0b" /> Засічка: {t.last_sensor}
+                          <AlertTriangle size={13} /> Засічка: {t.last_sensor}
                         </div>
-                        <div style={{ fontSize: '0.68rem', marginTop: '3px', color: '#fed7aa', lineHeight: '1.3' }}>
-                          Вектор швидкості, курс та ціль <b>НЕВІДОМІ</b>. Очікується 2-й контакт (камера, мікрофон, МВГ або 112) для визначення кінематики.
+                        <div className={styles.note}>
+                          Вектор швидкості, курс та ціль НЕВІДОМІ. Очікується 2-й контакт для визначення кінематики.
                         </div>
                       </div>
                     ) : (
-                      /* СТАДІЯ 2: Супровід із визначеним вектором */
-                      <div style={{ background: '#0f172a', padding: '6px', borderRadius: '4px', border: '1px solid #1e293b' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#38bdf8', marginBottom: '2px' }}>
+                      <div className={styles.kv}>
+                        <div className={`${styles.row} t-mono`} style={{ justifyContent: 'space-between' }}>
                           <span>Швидкість: <b>{t.speed !== null ? `${(t.speed * 3.6).toFixed(0)} км/год` : '?'}</b></span>
                           <span>Курс: <b>{t.heading !== null ? `${t.heading.toFixed(0)}°` : '?'}</b></span>
                         </div>
-                        <div>Висота: <b>{t.alt.toFixed(0)} м</b> | Засічок: <b>{t.detection_count || 2}</b></div>
-                        
+                        <div className="t-mono">Висота: <b>{t.alt.toFixed(0)} м</b> | Засічок: <b>{t.detection_count || 2}</b></div>
+
                         {t.kinematics_note && (
-                          <div style={{ fontSize: '0.68rem', color: '#34d399', marginTop: '3px', fontFamily: 'monospace' }}>
-                            📐 {t.kinematics_note}
+                          <div className={`${styles.note} t-mono`}>
+                            {t.kinematics_note}
                           </div>
                         )}
 
                         {t.target_asset_name && (
-                          <div style={{ color: '#fbbf24', marginTop: '3px', fontSize: '0.72rem', fontWeight: '500' }}>
-                            🎯 Ймовірна ціль: <b>{t.target_asset_name}</b>
+                          <div className={styles.note}>
+                            Ймовірна ціль: <b>{t.target_asset_name}</b>
                           </div>
                         )}
 
                         {t.nearest_ci && (
-                          <div style={{ marginTop: '2px', color: t.is_ci_critical ? '#fca5a5' : '#94a3b8', fontSize: '0.7rem' }}>
-                            До {t.nearest_ci}: <b>{t.ci_distance} м</b>
+                          <div className={styles.note}>
+                            До {t.nearest_ci}: <b className="t-mono">{t.ci_distance} м</b>
                           </div>
                         )}
 
                         {t.crash_safety !== null && t.crash_safety !== undefined && (
-                          <div style={{ marginTop: '2px', fontSize: '0.7rem' }}>
-                            Безпека падіння: <b style={{ color: t.crash_safety >= 60 ? '#34d399' : t.crash_safety >= 40 ? '#fbbf24' : '#f87171' }}>
-                              {t.crash_safety.toFixed(1)}%
-                            </b>
+                          <div className={styles.note}>
+                            Безпека падіння: <Badge tone={t.crash_safety >= 60 ? 'safe' : t.crash_safety >= 40 ? 'caution' : 'danger'}>{t.crash_safety.toFixed(1)}%</Badge>
                           </div>
                         )}
 
-                        {/* Хронологія сенсорних засічок */}
                         {t.detection_timeline && t.detection_timeline.length > 0 && (
-                          <div style={{ marginTop: '5px', borderTop: '1px dashed #334155', paddingTop: '4px' }}>
-                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase' }}>Ланцюжок виявлення:</div>
+                          <div style={{ marginTop: 5, borderTop: '1px dashed var(--border)', paddingTop: 4 }}>
+                            <div className={styles.note}>ЛАНЦЮЖОК ВИЯВЛЕННЯ:</div>
                             {t.detection_timeline.map((line, idx) => (
-                              <div key={idx} style={{ fontSize: '0.65rem', color: '#cbd5e1' }}>• {line}</div>
+                              <div key={idx} className={styles.note}>• {line}</div>
                             ))}
                           </div>
                         )}
@@ -341,33 +269,23 @@ export const TargetHUD: React.FC<Props> = ({
               );
             })
           )}
-        </div>
+        </Section>
 
-        {/* ВІДЖЕТ: ОСТАННІ 5 ЗБИТИХ ДРОНІВ */}
-        <div style={{ marginBottom: '1.2rem', background: '#111827', border: '1px solid #1e293b', borderRadius: '6px', padding: '0.6rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', margin: 0 }}>
-              Останні збиті цілі
-            </h4>
-            <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold' }}>
-              Всього: {totalDownedCount}
-            </span>
-          </div>
-
+        <Section title="Останні збиті цілі" action={<span className="t-mono">Всього: {totalDownedCount}</span>}>
           {recentDowned.length === 0 ? (
-            <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '4px 0' }}>Журнал порожній (цілі ще не утилізовано)</p>
+            <p className={styles.note}>Журнал порожній (цілі ще не утилізовано)</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {recentDowned.map((d) => (
-                <div key={d.id} className="mini-downed-item">
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <strong style={{ color: '#f87171', fontSize: '0.75rem' }}>{d.drone_id}</strong>
-                    <span style={{ color: '#64748b', fontSize: '0.68rem' }}>{d.downed_time.split(' ')[1] || d.downed_time}</span>
+                <div key={d.id} className={styles.miniItem}>
+                  <div className={styles.row} style={{ justifyContent: 'space-between' }}>
+                    <strong className={styles.cardTitle}>{d.drone_id}</strong>
+                    <span className={`${styles.note} t-mono`}>{d.downed_time.split(' ')[1] || d.downed_time}</span>
                   </div>
-                  <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                    Комплекс: <b style={{ color: '#a78bfa' }}>{d.interceptor_name}</b>
+                  <div className={styles.note}>
+                    Комплекс: <b>{d.interceptor_name}</b>
                   </div>
-                  <div style={{ fontSize: '0.68rem', color: '#cbd5e1' }}>
+                  <div className={styles.note}>
                     Зона: {d.crash_zone}
                   </div>
                 </div>
@@ -375,100 +293,79 @@ export const TargetHUD: React.FC<Props> = ({
             </div>
           )}
 
-          <button onClick={onOpenHistoryPage} className="btn-view-all-history">
+          <Button variant="ghost" onClick={onOpenHistoryPage} className={styles.fullWidth}>
             Повний журнал збиттів ({totalDownedCount}) <ArrowRight size={13} />
-          </button>
-        </div>
+          </Button>
+        </Section>
 
-        {/* РОЗДІЛ: ВУЗЛИ РЕБ */}
-        <div style={{ marginBottom: '1.2rem' }}>
-          <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
-            Комплекси РЕБ ({ewNodes.length})
-          </h4>
+        <Section title={`Комплекси РЕБ (${ewNodes.length})`}>
           {ewNodes.map((n) => (
-            <div key={n.id} style={{ background: '#1f2937', padding: '0.6rem', borderRadius: '6px', marginBottom: '0.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 'bold', fontSize: '0.85rem' }}>{n.name}</span>
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                  <button onClick={() => onEditObject({ type: 'ew', data: n })} className="btn-icon-hud" title="Редагувати параметри РЕБ">
+            <div key={n.id} className={`${styles.card}`}>
+              <div className={styles.cardHead}>
+                <span className={styles.cardTitle}>{n.name}</span>
+                <div className={styles.row}>
+                  <button onClick={() => onEditObject({ type: 'ew', data: n })} className={styles.iconBtn} title="Редагувати параметри РЕБ">
                     <Edit3 size={13} />
                   </button>
-                  <span className={`badge ${n.is_transmitting ? 'badge-jamming' : n.is_armed ? 'badge-armed' : ''}`}>
+                  <Badge tone={n.is_transmitting ? 'jamming' : n.is_armed ? 'armed' : 'neutral'}>
                     {n.is_transmitting ? 'BURST ACTIVE' : n.is_armed ? 'TRACKING' : 'STANDBY'}
-                  </span>
+                  </Badge>
                 </div>
               </div>
-              <div style={{ fontSize: '0.75rem', margin: '0.3rem 0', color: '#cbd5e1' }}>
-                Кут: <b style={{ color: '#38bdf8' }}>{n.azimuth}°</b> | Промінь: <b style={{ color: '#34d399' }}>{n.beamwidth}°</b> | R: <b>{n.max_range}м</b>
+              <div className={`${styles.cardBody} t-mono`}>
+                Кут: <b>{n.azimuth}°</b> | Промінь: <b>{n.beamwidth}°</b> | R: <b>{n.max_range}м</b>
               </div>
-              <button
+              <Button
+                variant={n.is_transmitting ? 'danger' : 'primary'}
                 onClick={() => onTriggerBurst(n.id)}
                 disabled={n.is_transmitting}
-                style={{
-                  width: '100%', padding: '0.4rem',
-                  background: n.is_transmitting ? '#dc2626' : '#0284c7',
-                  border: 'none', color: 'white', borderRadius: '4px',
-                  cursor: n.is_transmitting ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                  fontWeight: 'bold', fontSize: '0.8rem'
-                }}
+                className={styles.fullWidth}
               >
                 <Zap size={14} /> {n.is_transmitting ? 'АКТИВНЕ ПРИДУШЕННЯ...' : '20s ПРИМУСОВИЙ BURST'}
-              </button>
+              </Button>
             </div>
           ))}
-        </div>
+        </Section>
 
-        {/* РОЗДІЛ: СЕНСОРИ ТА КРИТИЧНІ ОБ'ЄКТИ */}
-        <div style={{ marginBottom: '1.2rem' }}>
-          <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
-            Сенсори та об'єкти ({sensors.length})
-          </h4>
+        <Section title={`Сенсори та об'єкти (${sensors.length})`}>
           {sensors.map((s) => (
-            <div key={s.id} style={{ background: '#111827', border: '1px solid #1f2937', padding: '0.5rem', borderRadius: '6px', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {s.sensor_type === 'camera' && <Camera size={16} color="#34d399" />}
-              {s.sensor_type === 'acoustic' && <Mic size={16} color="#fbbf24" />}
-              {s.sensor_type === 'observation_post' && <Eye size={16} color="#a78bfa" />}
-              {s.sensor_type === 'target_asset' && <Target size={16} color="#f87171" />}
-              {s.sensor_type === 'witness_report' && <Users size={16} color="#f472b6" />}
-              <div style={{ fontSize: '0.75rem', flex: 1 }}>
-                <div style={{ fontWeight: 'bold', color: s.sensor_type === 'target_asset' ? '#fca5a5' : '#e2e8f0' }}>{s.name}</div>
-                <div style={{ color: '#9ca3af' }}>R: {s.detection_radius}м {s.description ? `• ${s.description}` : ''}</div>
+            <div key={s.id} className={`${styles.card} ${styles.row}`}>
+              {s.sensor_type === 'camera' && <Camera size={16} />}
+              {s.sensor_type === 'acoustic' && <Mic size={16} />}
+              {s.sensor_type === 'observation_post' && <Eye size={16} />}
+              {s.sensor_type === 'target_asset' && <Target size={16} />}
+              {s.sensor_type === 'witness_report' && <Users size={16} />}
+              <div className={`${styles.cardBody} ${styles.grow}`}>
+                <div style={{ fontWeight: 'bold', color: 'var(--text-1)' }}>{s.name}</div>
+                <div>R: <span className="t-mono">{s.detection_radius}м</span> {s.description ? `• ${s.description}` : ''}</div>
               </div>
-              <button onClick={() => onEditObject({ type: 'sensor', data: s })} className="btn-icon-hud" title="Редагувати">
+              <button onClick={() => onEditObject({ type: 'sensor', data: s })} className={styles.iconBtn} title="Редагувати">
                 <Edit3 size={13} />
               </button>
             </div>
           ))}
-        </div>
+        </Section>
 
-        {/* РОЗДІЛ: ТАКТИЧНІ РАЙОНИ */}
-        <div>
-          <h4 style={{ color: '#9ca3af', textTransform: 'uppercase', fontSize: '0.75rem', marginBottom: '0.4rem' }}>
-            Тактичні райони ({zones.length})
-          </h4>
+        <Section title={`Тактичні райони (${zones.length})`}>
           {zones.map((z) => (
-            <div key={z.id} style={{ background: '#111827', border: '1px solid #1f2937', padding: '0.4rem 0.6rem', borderRadius: '6px', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {z.zone_type === 'safe' && <ShieldCheck size={14} color="#10b981" />}
-                {z.zone_type === 'caution' && <AlertTriangle size={14} color="#f59e0b" />}
-                {z.zone_type === 'danger' && <ShieldAlert size={14} color="#ef4444" />}
+            <div key={z.id} className={`${styles.card} ${styles.row}`} style={{ justifyContent: 'space-between' }}>
+              <span className={`${styles.cardBody} ${styles.row}`}>
+                {z.zone_type === 'safe' && <ShieldCheck size={14} />}
+                {z.zone_type === 'caution' && <AlertTriangle size={14} />}
+                {z.zone_type === 'danger' && <ShieldAlert size={14} />}
                 {z.name}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <button onClick={() => onEditObject({ type: 'zone', data: z })} className="btn-icon-hud" title="Редагувати зону">
+              <div className={styles.row}>
+                <button onClick={() => onEditObject({ type: 'zone', data: z })} className={styles.iconBtn} title="Редагувати зону">
                   <Edit3 size={13} />
                 </button>
-                <span className={`badge ${
-                  z.zone_type === 'safe' ? 'badge-safe' :
-                  z.zone_type === 'caution' ? 'badge-caution' : 'badge-danger'
-                }`}>
+                <Badge tone={z.zone_type === 'safe' ? 'safe' : z.zone_type === 'caution' ? 'caution' : 'danger'}>
                   {z.zone_type === 'safe' ? 'KILLBOX' : z.zone_type === 'caution' ? 'CAUTION' : 'NO-DROP'}
-                </span>
+                </Badge>
               </div>
             </div>
           ))}
-        </div>
+        </Section>
 
       </div>
     </div>

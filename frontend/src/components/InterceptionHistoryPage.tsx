@@ -1,10 +1,11 @@
-// frontend/src/components/InterceptionHistoryPage.tsx
 import React, { useState, useEffect } from 'react';
-import { 
-  ArrowLeft, CheckCircle2, RotateCcw, Trash2, 
-  Search, ShieldAlert, Crosshair, Download, AlertTriangle
+import {
+  ArrowLeft, CheckCircle2, RotateCcw, Trash2,
+  Search, Download, AlertTriangle
 } from 'lucide-react';
 import { DownedDroneDetailed } from '../types';
+import { Button, Badge } from './ui';
+import s from './InterceptionHistoryPage.module.css';
 
 interface Props {
   onBackToMap: () => void;
@@ -69,7 +70,7 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
     document.body.removeChild(link);
   };
 
-  const filtered = history.filter((d) => 
+  const filtered = history.filter((d) =>
     d.drone_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
     d.target_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     d.interceptor_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -79,78 +80,70 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
   const killboxInterceptions = history.filter((h) => h.crash_zone.includes('🟢') || h.crash_zone.toLowerCase().includes('killbox')).length;
 
   return (
-    <div className="history-page-container">
-      {/* Header */}
-      <div className="history-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={onBackToMap} className="btn-back" title="Назад на тактичну карту">
+    <div className={s.page}>
+      <div className={s.head}>
+        <div className={s.headL}>
+          <Button variant="default" onClick={onBackToMap} title="Назад на тактичну карту">
             <ArrowLeft size={16} /> ТАКТИЧНА КАРТА
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <CheckCircle2 size={24} color="#10b981" />
-            <h1 className="history-title">ЖУРНАЛ БОЙОВОЇ РОБОТИ ТА ЗБИТИХ ДРОНІВ</h1>
-          </div>
+          </Button>
+          <h1 className={s.title}>
+            <span className={s.titleIco}><CheckCircle2 size={24} /></span>
+            ЖУРНАЛ БОЙОВОЇ РОБОТИ ТА ЗБИТИХ ДРОНІВ
+          </h1>
         </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button onClick={handleExportCSV} className="btn-export" disabled={history.length === 0}>
+        <div className={s.actions}>
+          <Button variant="default" onClick={handleExportCSV} disabled={history.length === 0}>
             <Download size={14} /> Експорт у CSV
-          </button>
-          <button onClick={fetchHistory} className="btn-icon-action" title="Оновити дані">
+          </Button>
+          <Button variant="default" onClick={fetchHistory} title="Оновити дані">
             <RotateCcw size={15} />
-          </button>
-          <button onClick={handleClearHistory} className="btn-danger-action" title="Очистити всю історію">
+          </Button>
+          <Button variant="danger" onClick={handleClearHistory} title="Очистити всю історію">
             <Trash2 size={15} /> Очистити журнал
-          </button>
+          </Button>
         </div>
       </div>
-
-      {/* Статистичні картки */}
-      <div className="history-stats-grid">
-        <div className="stat-card">
-          <div className="stat-card-title">ВСЬОГО ЗБИТО ДРОНІВ</div>
-          <div className="stat-card-val" style={{ color: '#ef4444' }}>{history.length}</div>
-          <div className="stat-card-desc">Зафіксовано системою РЕБ</div>
+      <div className={s.stats}>
+        <div className={s.stat}>
+          <div className={s.statT}>ВСЬОГО ЗБИТО ДРОНІВ</div>
+          <div className={`${s.statV} ${s.vDanger}`}>{history.length}</div>
+          <div className={s.statD}>Зафіксовано системою РЕБ</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-title">УТИЛІЗОВАНО В KILLBOX</div>
-          <div className="stat-card-val" style={{ color: '#10b981' }}>{killboxInterceptions}</div>
-          <div className="stat-card-desc">Хірургічний зрив над безпечними зонами</div>
+        <div className={s.stat}>
+          <div className={s.statT}>УТИЛІЗОВАНО В KILLBOX</div>
+          <div className={`${s.statV} ${s.vSafe}`}>{killboxInterceptions}</div>
+          <div className={s.statD}>Хірургічний зрив над безпечними зонами</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-card-title">ЕФЕКТИВНІСТЬ БЕЗПЕКИ</div>
-          <div className="stat-card-val" style={{ color: '#38bdf8' }}>
+        <div className={s.stat}>
+          <div className={s.statT}>ЕФЕКТИВНІСТЬ БЕЗПЕКИ</div>
+          <div className={`${s.statV} ${s.vInfo}`}>
             {history.length > 0 ? `${Math.round((killboxInterceptions / history.length) * 100)}%` : '100%'}
           </div>
-          <div className="stat-card-desc">Частка падінь поза населеними пунктами</div>
+          <div className={s.statD}>Частка падінь поза населеними пунктами</div>
         </div>
       </div>
-
-      {/* Пошуковий фільтр */}
-      <div className="history-filter-bar">
-        <div style={{ position: 'relative', flex: 1 }}>
-          <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '11px' }} />
+      <div className={s.filter}>
+        <div className={s.searchWrap}>
+          <Search size={16} className={s.searchIco} />
           <input
             type="text"
             placeholder="Швидкий пошук за номером борта (SHAHED-...), об'єктом атаки, комплексом РЕБ або зоною падіння..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="history-search-input"
+            className={s.search}
           />
         </div>
       </div>
-
-      {/* Таблиця історії */}
-      <div className="history-table-container">
+      <div className={s.tableWrap}>
         {loading ? (
-          <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>Завантаження бойового журналу...</div>
+          <div className={s.empty}>Завантаження бойового журналу...</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-            <AlertTriangle size={32} style={{ marginBottom: '8px', opacity: 0.6 }} />
+          <div className={s.empty}>
+            <AlertTriangle size={32} />
             <div>Записів про збиті дрони не знайдено</div>
           </div>
         ) : (
-          <table className="history-table">
+          <table className={s.table}>
             <thead>
               <tr>
                 <th>№ Борта</th>
@@ -162,38 +155,35 @@ export const InterceptionHistoryPage: React.FC<Props> = ({ onBackToMap }) => {
                 <th>Точка падіння</th>
                 <th>Сектор / Зона падіння</th>
                 <th>Статус</th>
-                <th style={{ textAlign: 'center' }}>Дія</th>
+                <th className={s.center}>Дія</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((row) => (
                 <tr key={row.id}>
-                  <td><strong style={{ color: '#f87171' }}>{row.drone_id}</strong></td>
-                  <td style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{row.spawn_time}</td>
-                  <td style={{ color: '#38bdf8', fontSize: '0.75rem', fontWeight: 'bold' }}>{row.downed_time}</td>
-                  <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#cbd5e1' }}>{row.spawn_coords}</td>
-                  <td><b style={{ color: '#fbbf24' }}>{row.target_name}</b></td>
-                  <td><span style={{ color: '#a78bfa', fontWeight: 'bold' }}>{row.interceptor_name}</span></td>
-                  <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#cbd5e1' }}>{row.crash_coords}</td>
+                  <td><strong className={s.id}>{row.drone_id}</strong></td>
+                  <td className={s.dim}>{row.spawn_time}</td>
+                  <td className={s.hl}>{row.downed_time}</td>
+                  <td className={s.mono}>{row.spawn_coords}</td>
+                  <td><b className={s.tgt}>{row.target_name}</b></td>
+                  <td><span className={s.ew}>{row.interceptor_name}</span></td>
+                  <td className={s.mono}>{row.crash_coords}</td>
                   <td>
-                    <span style={{ 
-                      color: row.crash_zone.includes('🟢') ? '#34d399' : row.crash_zone.includes('🔴') ? '#f87171' : '#e2e8f0',
-                      fontWeight: '500'
-                    }}>
+                    <span className={row.crash_zone.includes('🟢') ? s.safe : row.crash_zone.includes('🔴') ? s.zoneDanger : undefined}>
                       {row.crash_zone}
                     </span>
                   </td>
                   <td>
-                    <span className="badge badge-danger">💥 {row.status}</span>
+                    <Badge tone="danger">💥 {row.status}</Badge>
                   </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <button 
-                      onClick={() => handleDeleteItem(row.id)} 
-                      className="btn-delete-row"
+                  <td className={s.center}>
+                    <Button
+                      variant="danger"
+                      onClick={() => handleDeleteItem(row.id)}
                       title="Видалити запис"
                     >
                       <Trash2 size={13} />
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}

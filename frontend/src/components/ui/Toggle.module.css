@@ -1,0 +1,39 @@
+.root {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-2);
+  font-family: inherit;
+}
+
+.pill {
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  transition: background 0.15s;
+}
+
+.knob {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-on-fill);
+  transition: transform 0.15s;
+}
+
+.on .pill {
+  background: var(--accent);
+}
+
+.on .knob {
+  transform: translateX(14px);
+}

@@ -1,0 +1,12 @@
+.root { display: flex; flex-direction: column; height: 100vh; background: var(--bg-base); color: var(--text-1); }
+.bar { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-lg); height: 52px; flex: none; background: var(--bg-raised); border-bottom: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: var(--space-md); }
+.logo { font-weight: 800; letter-spacing: 0.08em; color: var(--info); }
+.divider { color: var(--border-strong); }
+.sub { font-size: 0.7rem; letter-spacing: 0.06em; color: var(--text-2); }
+.tabs { display: flex; align-items: center; gap: var(--space-sm); }
+.tab { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-2); padding: 7px 12px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; cursor: pointer; }
+.tab:hover { background: var(--bg-sunken); color: var(--text-1); }
+.active { background: var(--info-soft); border-color: var(--info); color: var(--info); }
+.body { display: flex; flex: 1; min-height: 0; }
+.mapPane { flex: 1; min-width: 0; position: relative; }

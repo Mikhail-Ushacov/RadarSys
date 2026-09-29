@@ -1,0 +1,38 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.neutral {
+  background: var(--bg-sunken);
+  color: var(--text-2);
+}
+
+.safe {
+  background: var(--safe-soft);
+  color: var(--safe);
+}
+
+.caution {
+  background: var(--caution-soft);
+  color: var(--caution);
+}
+
+.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.jamming {
+  background: var(--danger);
+  color: var(--text-on-bright);
+}

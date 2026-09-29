@@ -8,6 +8,8 @@ import L from 'leaflet';
 import { Track, EWNode, TacticalZone, TacticalSensor } from '../types';
 import { Navigation, Move, Edit3, Trash2, CheckCircle2, RotateCcw, X } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
+import { Button } from './ui';
+import m from './TacticalMap.module.css';
 
 interface RiskCell { 
   cell: string; 
@@ -22,9 +24,9 @@ interface RiskCell {
 }
 
 function safetyColor(s: number): string {
-  if (s >= 60) return '#10b981'; // Зелений
-  if (s >= 40) return '#f59e0b'; // Помаранчевий
-  return '#ef4444';              // Червоний
+  if (s >= 60) return '#10b981';
+  if (s >= 40) return '#f59e0b';
+  return '#ef4444';
 }
 
 function getBeamSector(lat: number, lon: number, azimuth: number, beamwidth: number, rangeMeters: number): [number, number][] {
@@ -269,19 +271,19 @@ const EWNodeMarkerItem: React.FC<{
       )}
       <Marker position={memoPos} icon={icons.ew(node.is_transmitting)} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
-          <div className="popup-tactical">
-            <strong style={{ color: '#0284c7' }}>{node.name}</strong>
-            <p style={{ margin: '3px 0' }}>Наведення: <b>{node.azimuth}°</b></p>
-            <p style={{ margin: '3px 0' }}>Промінь: <b>{node.beamwidth}°</b></p>
-            <p style={{ margin: '3px 0' }}>Радіус: <b>{node.max_range} м</b></p>
-            <p style={{ margin: '3px 0' }}>Статус: <b>{node.is_transmitting ? 'АКТИВНИЙ ВОГОНЬ (JAMMING)' : 'АВТОСУПРОВІД'}</b></p>
-            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'ew', data: node }); }} className="btn-popup-edit">
+          <div className={m.popup}>
+            <strong className={m.toneInfo}>{node.name}</strong>
+            <p>Наведення: <b>{node.azimuth}°</b></p>
+            <p>Промінь: <b>{node.beamwidth}°</b></p>
+            <p>Радіус: <b>{node.max_range} м</b></p>
+            <p>Статус: <b>{node.is_transmitting ? 'АКТИВНИЙ ВОГОНЬ (JAMMING)' : 'АВТОСУПРОВІД'}</b></p>
+            <div className={m.popupActions}>
+              <Button variant="default" onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'ew', data: node }); }}>
                 <Edit3 size={12} /> Редагувати
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); onDeleteEW(node.id); }} className="btn-popup-delete">
+              </Button>
+              <Button variant="danger" onClick={(e) => { e.stopPropagation(); onDeleteEW(node.id); }}>
                 <Trash2 size={12} />
-              </button>
+              </Button>
             </div>
           </div>
         </Popup>
@@ -333,18 +335,18 @@ const SensorMarkerItem: React.FC<{
       <Circle center={memoPos} radius={sensor.detection_radius} pathOptions={{ color: circleColor, fillColor: circleColor, fillOpacity: 0.08, weight: 1, dashArray: '3, 6' }} />
       <Marker position={memoPos} icon={icon} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
-          <div className="popup-tactical">
+          <div className={m.popup}>
             <strong>{sensor.name}</strong>
-            <p style={{ margin: '3px 0' }}>Тип: <i>{sensor.sensor_type}</i></p>
-            <p style={{ margin: '3px 0' }}>Радіус: <b>{sensor.detection_radius} м</b></p>
-            {sensor.description && <p style={{ margin: '3px 0', color: '#475569' }}>{sensor.description}</p>}
-            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'sensor', data: sensor }); }} className="btn-popup-edit">
+            <p>Тип: <i>{sensor.sensor_type}</i></p>
+            <p>Радіус: <b>{sensor.detection_radius} м</b></p>
+            {sensor.description && <p className={m.toneDim}>{sensor.description}</p>}
+            <div className={m.popupActions}>
+              <Button variant="default" onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'sensor', data: sensor }); }}>
                 <Edit3 size={12} /> Редагувати
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); onDeleteSensor(sensor.id); }} className="btn-popup-delete">
+              </Button>
+              <Button variant="danger" onClick={(e) => { e.stopPropagation(); onDeleteSensor(sensor.id); }}>
                 <Trash2 size={12} />
-              </button>
+              </Button>
             </div>
           </div>
         </Popup>
@@ -411,17 +413,17 @@ const ZoneItem: React.FC<{
       />
       <Marker position={center} icon={icons.zone_anchor(zone.zone_type)} draggable={true} eventHandlers={eventHandlers}>
         <Popup>
-          <div className="popup-tactical">
+          <div className={m.popup}>
             <strong style={{ color: strokeColor }}>{title}</strong>
-            <p style={{ margin: '4px 0', fontWeight: 'bold' }}>{zone.name}</p>
-            <p style={{ margin: '2px 0', fontSize: '0.72rem', color: '#64748b' }}>Вершин контуру: {zone.coordinates.length}</p>
-            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'zone', data: zone }); }} className="btn-popup-edit">
+            <p><b>{zone.name}</b></p>
+            <p className={m.toneDim}>Вершин контуру: {zone.coordinates.length}</p>
+            <div className={m.popupActions}>
+              <Button variant="default" onClick={(e) => { e.stopPropagation(); onEditObject({ type: 'zone', data: zone }); }}>
                 <Edit3 size={12} /> Редагувати
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); onDeleteZone(zone.id); }} className="btn-popup-delete">
+              </Button>
+              <Button variant="danger" onClick={(e) => { e.stopPropagation(); onDeleteZone(zone.id); }}>
                 <Trash2 size={12} />
-              </button>
+              </Button>
             </div>
           </div>
         </Popup>
@@ -431,6 +433,7 @@ const ZoneItem: React.FC<{
 };
 
 interface Props {
+  dark: boolean;
   tracks: Track[];
   ewNodes: EWNode[];
   zones: TacticalZone[];
@@ -454,8 +457,8 @@ interface Props {
 
 const MAP_KEY = (import.meta as any).env?.VITE_MAP_API_KEY || '';
 
-export const TacticalMap: React.FC<Props> = ({ 
-  tracks, ewNodes, zones, sensors, 
+export const TacticalMap: React.FC<Props> = ({
+  dark, tracks, ewNodes, zones, sensors, 
   isDrawingZone, drawingPoints, onAddDrawingPoint, onFinishDrawingZone, onCancelDrawingZone, onUndoDrawingPoint,
   onMapClick, onDeleteZone, onDeleteSensor, onDeleteEW, onEditObject,
   onDragStart, onCommitMoveEW, onCommitMoveSensor, onCommitMoveZone
@@ -488,44 +491,44 @@ export const TacticalMap: React.FC<Props> = ({
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div className={m.wrap}>
       {/* ПАНЕЛЬ УПРАВЛІННЯ РЕЖИМОМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ */}
       {isDrawingZone && (
-        <div className="drawing-toolbar-overlay">
-          <div className="drawing-toolbar-title">
-            <span className="pulse-dot"></span> РЕЖИМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ
+        <div className={m.drawBar}>
+          <div className={m.drawTitle}>
+            <span className={m.pulse}></span> РЕЖИМ МАЛЮВАННЯ ЗОНИ ВІЛЬНОЇ ФОРМИ
           </div>
-          <div className="drawing-toolbar-desc">
+          <div className={m.drawDesc}>
             Клікайте по карті, щоб позначити вершини контуру. Потрібно мінімум 3 точки.
           </div>
-          <div className="drawing-toolbar-actions">
-            <span className="drawing-points-count">ВЕРШИН: <b>{drawingPoints.length}</b></span>
-            <button 
-              onClick={onUndoDrawingPoint} 
-              disabled={drawingPoints.length === 0} 
-              className="btn-draw-tool"
+          <div className={m.drawActions}>
+            <span className={m.drawCount}>ВЕРШИН: <b>{drawingPoints.length}</b></span>
+            <Button
+              variant="default"
+              onClick={onUndoDrawingPoint}
+              disabled={drawingPoints.length === 0}
               title="Видалити останню точку"
             >
               <RotateCcw size={14} /> Скасувати точку
-            </button>
-            <button 
-              onClick={onFinishDrawingZone} 
-              disabled={drawingPoints.length < 3} 
-              className="btn-draw-tool finish"
+            </Button>
+            <Button
+              variant="success"
+              onClick={onFinishDrawingZone}
+              disabled={drawingPoints.length < 3}
               title="Замкнути полігон та зберегти в БД"
             >
               <CheckCircle2 size={14} /> Завершити та зберегти
-            </button>
-            <button onClick={onCancelDrawingZone} className="btn-draw-tool cancel">
+            </Button>
+            <Button variant="danger" onClick={onCancelDrawingZone}>
               <X size={14} /> Скасувати
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       <MapContainer center={defaultCenter} zoom={11} style={{ width: '100%', height: '100%' }}>
         <TileLayer 
-          url={`https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${MAP_KEY}`}
+          url={`https://tiles.stadiamaps.com/tiles/${dark ? 'alidade_smooth_dark' : 'alidade_smooth'}/{z}/{x}/{y}{r}.png?api_key=${MAP_KEY}`}
           attribution='&copy; Stadia Maps &copy; OpenStreetMap'
         />
 
@@ -546,10 +549,10 @@ export const TacticalMap: React.FC<Props> = ({
             }}
           >
             <Popup>
-              <div className="popup-tactical">
+              <div className={m.popup}>
                 <strong>H3 Комірка · безпека <span style={{ color: safetyColor(c.safety) }}>{c.safety.toFixed(1)}%</span></strong>
-                <p style={{ margin: '4px 0' }}>{c.why}</p>
-                <p style={{ margin: '3px 0', color: '#475569' }}>Ризик: {c.risk.toFixed(0)}% | Будівель: {c.b} | Доріг: {c.r}</p>
+                <p>{c.why}</p>
+                <p className={m.toneDim}>Ризик: {c.risk.toFixed(0)}% | Будівель: {c.b} | Доріг: {c.r}</p>
               </div>
             </Popup>
           </Polygon>
@@ -612,20 +615,20 @@ export const TacticalMap: React.FC<Props> = ({
                 icon={isInitialContact ? icons.droneUnknown() : icons.drone(target.heading ?? 0, target.status)}
               >
                 <Popup>
-                  <div className="popup-tactical">
-                    <strong style={{ color: isInitialContact ? '#f59e0b' : (target.status === 'CRASHED' ? '#ef4444' : '#38bdf8') }}>
+                  <div className={m.popup}>
+                    <strong className={isInitialContact ? m.toneCaution : target.status === 'CRASHED' ? m.toneDanger : m.toneInfo}>
                       {target.id} {isInitialContact ? '⚠️ (ПЕРВИННИЙ КОНТАКТ)' : (target.status === 'CRASHED' ? '💥 (ЗБИТО)' : '🎯 (СУПРОВІД)')}
                     </strong>
-                    <p style={{ margin: '3px 0' }}>Джерело: <b>{target.last_sensor || 'Сенсор'}</b></p>
-                    <p style={{ margin: '3px 0' }}>Швидкість: <b>{target.speed !== null ? `${(target.speed * 3.6).toFixed(0)} км/год` : 'НЕВІДОМО (?)'}</b></p>
-                    <p style={{ margin: '3px 0' }}>Курс / Азимут: <b>{target.heading !== null ? `${target.heading.toFixed(0)}°` : 'НЕВІДОМО (?)'}</b></p>
+                    <p>Джерело: <b>{target.last_sensor || 'Сенсор'}</b></p>
+                    <p>Швидкість: <b>{target.speed !== null ? `${(target.speed * 3.6).toFixed(0)} км/год` : 'НЕВІДОМО (?)'}</b></p>
+                    <p>Курс / Азимут: <b>{target.heading !== null ? `${target.heading.toFixed(0)}°` : 'НЕВІДОМО (?)'}</b></p>
                     {isInitialContact && (
-                      <p style={{ margin: '4px 0', color: '#f59e0b', fontSize: '0.72rem' }}>
+                      <p className={m.popupNote}>
                         Очікується 2-й контакт (камера/мікрофон/МВГ) для розрахунку вектора польоту
                       </p>
                     )}
                     {target.crash_safety !== null && target.crash_safety !== undefined && (
-                      <p style={{ margin: '3px 0' }}>Безпека падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>
+                      <p>Безпека падіння: <b style={{ color: safetyColor(target.crash_safety) }}>{target.crash_safety.toFixed(1)}%</b></p>
                     )}
                   </div>
                 </Popup>
@@ -657,47 +660,44 @@ export const TacticalMap: React.FC<Props> = ({
       </MapContainer>
 
       {/* КНОПКА ПЕРЕМИКАННЯ РЕЖИМІВ */}
-      <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 500, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button 
-          onClick={() => setShowRisk((v) => !v)} 
-          style={{ background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}
-        >
+      <div className={m.toggleBox}>
+        <Button variant="default" onClick={() => setShowRisk((v) => !v)}>
           {showRisk ? 'Сховати H3 гексагони' : 'Показати сирі H3 гексагони'}
-        </button>
+        </Button>
       </div>
 
       {/* ТАКТИЧНА ЛЕГЕНДА ЗОН БЕЗПЕКИ */}
-      <div style={{ position: 'absolute', bottom: 20, left: 12, zIndex: 500, background: 'rgba(15,23,42,0.92)', border: '1px solid #334155', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#e2e8f0' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: 4, letterSpacing: '0.04em' }}>ТАКТИЧНІ РАЙОНИ:</div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
-          <span style={{ display: 'inline-block', width: 12, height: 12, background: '#10b981', marginRight: 6, borderRadius: 2 }} />
+      <div className={m.legend}>
+        <div className={m.legendTitle}>ТАКТИЧНІ РАЙОНИ:</div>
+        <div className={m.legendRow}>
+          <span className={`${m.swatch} ${m.swSafe}`} />
           <b>Зелена зона (≥60%)</b> — Killbox, ураження дозволено
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
-          <span style={{ display: 'inline-block', width: 12, height: 12, background: '#f59e0b', marginRight: 6, borderRadius: 2 }} />
+        <div className={m.legendRow}>
+          <span className={`${m.swatch} ${m.swCaution}`} />
           <b>Помаранчева зона (40-60%)</b> — Буфер, утриматись
         </div>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={{ display: 'inline-block', width: 12, height: 12, background: '#ef4444', marginRight: 6, borderRadius: 2 }} />
+        <div className={m.legendRow}>
+          <span className={`${m.swatch} ${m.swDanger}`} />
           <b>Червона зона (&lt;40%)</b> — Місто/люди, падіння заборонено
         </div>
       </div>
 
-      <div className="cursor-coordinate-hud">
-        <div className="hud-row">
-          <Navigation size={14} color="#38bdf8" />
-          <span className="hud-title">WGS-84:</span>
+      <div className={m.cursorHud}>
+        <div className={m.hudRow}>
+          <Navigation size={14} className={m.toneInfo} />
+          <span className={m.hudTitle}>WGS-84:</span>
           {cursorCoords ? (
-            <span className="hud-value">{cursorCoords.lat.toFixed(5)}° N, {cursorCoords.lon.toFixed(5)}° E</span>
+            <span className={m.hudValue}>{cursorCoords.lat.toFixed(5)}° N, {cursorCoords.lon.toFixed(5)}° E</span>
           ) : (
-            <span className="hud-value hud-dimmed">НАВЕДІТЬ НА КАРТУ</span>
+            <span className={`${m.hudValue} ${m.dimmed}`}>НАВЕДІТЬ НА КАРТУ</span>
           )}
         </div>
         {cursorCoords && (
-          <div className="hud-row">
-            <Move size={14} color="#34d399" />
-            <span className="hud-title">LOCAL ENU:</span>
-            <span className="hud-value">X: {deltaX >= '0' ? `+${deltaX}` : deltaX}m | Y: {deltaY >= '0' ? `+${deltaY}` : deltaY}m</span>
+          <div className={m.hudRow}>
+            <Move size={14} className={m.toneSafe} />
+            <span className={m.hudTitle}>LOCAL ENU:</span>
+            <span className={m.hudValue}>X: {deltaX >= '0' ? `+${deltaX}` : deltaX}m | Y: {deltaY >= '0' ? `+${deltaY}` : deltaY}m</span>
           </div>
         )}
       </div>
