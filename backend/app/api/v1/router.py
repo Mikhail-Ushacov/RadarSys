@@ -3,12 +3,12 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     simulation,
     ew,
-    zones,
     sensors,
     downed_drones,
     risk,
     seed
 )
+from app.seed import zones
 
 api_v1_router = APIRouter(prefix="/api/v1")
 

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
 from app.core.risk_h3 import load_grid as risk_load_grid
+from app.seed.ci_loader import seed_from_data_files, data_files_watcher_loop
 from app.seed.ew_optimizer import auto_optimize_and_apply_ew
 from app.services.c2_engine import c2_engine
 from app.services.connection_manager import ws_manager
@@ -25,17 +26,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("risk_h3 load failed: %s", e)
 
-    # 2. Автоматичний запуск ешелонованої оптимізації РЕБ при старті
+    # 2. Автоматичний пошук і завантаження ОКІ та тактичних зон із дата-файлів
     try:
-        logger.info("Запуск первинної оптимізації розташування РЕБ...")
-        await auto_optimize_and_apply_ew(node_count=7, replace_existing=False)
+        logger.info("[INIT] Завантаження критичної інфраструктури та зон із дата-файлів...")
+        await seed_from_data_files(force_reload=True)
     except Exception as e:
-        logger.error("Помилка автоматичної оптимізації РЕБ при старті: %s", e)
+        logger.error("[INIT] Помилка завантаження даних із data/: %s", e)
 
-    # 3. Фоновий цикл супроводу цілей C2
-    bg_task = asyncio.create_task(c2_engine.calculation_loop())
+    # 3. Автоматичний запуск оптимізації РЕБ з оцінкою ОКІ/Killbox та радіусом до 10000м
+    try:
+        logger.info("[INIT] Оцінка ОКІ та зон: запуск оптимізації розташування РЕБ (радіус до 10000м)...")
+        await auto_optimize_and_apply_ew(node_count=7, replace_existing=True)
+    except Exception as e:
+        logger.error("[INIT] Помилка оптимізації РЕБ при старті: %s", e)
+
+    # 4. Фонові цикли:
+    #   - C2 Engine (супровід дронів та бойова робота)
+    #   - Data Files Watcher (перевірка оновлення data/ci.json та data/tactical_zones.json)
+    c2_task = asyncio.create_task(c2_engine.calculation_loop())
+    watcher_task = asyncio.create_task(data_files_watcher_loop(interval_sec=4.0))
+
     yield
-    bg_task.cancel()
+
+    c2_task.cancel()
+    watcher_task.cancel()
 
 app = FastAPI(title="Surgical EW Control System", lifespan=lifespan)
 
