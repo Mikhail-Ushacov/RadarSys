@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Radio, Camera, Mic, Eye,
+  Radio, Radar, Camera, Mic, Eye,
   Target, ShieldCheck, ShieldAlert, AlertTriangle
 } from 'lucide-react';
 import { EWNode, TacticalSensor, TacticalZone, SensorType, ZoneType } from '../types';
@@ -26,6 +26,7 @@ type ObjectCategory =
   | 'ew_node' 
   | 'camera' 
   | 'acoustic' 
+  | 'rf_24ghz'
   | 'observation_post' 
   | 'witness_report' 
   | 'target_asset'
@@ -254,6 +255,7 @@ export const TacticalObjectModal: React.FC<Props> = ({
     { id: 'safe_zone', icon: <ShieldCheck size={15} />, label: 'Зелена зона (Killbox)' },
     { id: 'camera', icon: <Camera size={15} />, label: 'Оптична камера' },
     { id: 'acoustic', icon: <Mic size={15} />, label: 'Акустичний пост' },
+    { id: 'rf_24ghz', icon: <Radar size={15} />, label: 'RF сенсор 24 ГГц' },
     { id: 'observation_post', icon: <Eye size={15} />, label: 'Мобільна вогнева група' },
   ];
 
@@ -386,7 +388,7 @@ export const TacticalObjectModal: React.FC<Props> = ({
           </>
         )}
 
-        {['camera', 'acoustic', 'observation_post', 'witness_report', 'target_asset'].includes(category) && (
+        {['camera', 'acoustic', 'rf_24ghz', 'observation_post', 'witness_report', 'target_asset'].includes(category) && (
           <>
             <div className={styles.group}>
               <label className={styles.label}>Радіус виявлення / засікання (м)</label>
