@@ -1,5 +1,7 @@
 // frontend/src/types.ts
 
+export type DataSourceMode = 'simulation' | 'live_mapa';
+
 export type DetectionStage = 'INITIAL_CONTACT' | 'TRACKED';
 
 export interface ActiveEvent {
@@ -93,6 +95,7 @@ export interface DownedDroneDetailed {
   id: number;
   drone_id: string;
   drone_type: string;
+  data_source?: 'simulation' | 'live_mapa' | string; // <- додано
   spawn_time: string;
   downed_time: string;
   spawn_coords: string;
@@ -117,6 +120,8 @@ export interface TacticalUpdate {
   active_events?: ActiveEvent[];
   emergency_112_alert?: Emergency112Alert | null;
   timestamp: number;
+  source_mode?: DataSourceMode;       // <- додано
+  mapa_feed_mode?: 'live' | 'replay'; // <- додано
   simulation_active?: boolean;
   auto_tracking?: boolean;
   emergency_override?: boolean;

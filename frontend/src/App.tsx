@@ -11,7 +11,8 @@ import {
   TacticalZone, 
   TacticalSensor, 
   DownedDroneDetailed, 
-  Emergency112Alert 
+  Emergency112Alert,
+  DataSourceMode
 } from './types';
 import { Map as MapIcon, History as HistoryIcon, Sun, Moon } from 'lucide-react';
 import { Badge } from './components/ui';
@@ -26,6 +27,9 @@ export const App: React.FC = () => {
   const [sensors, setSensors] = useState<TacticalSensor[]>([]);
   const [recentDowned, setRecentDowned] = useState<DownedDroneDetailed[]>([]);
   const [totalDownedCount, setTotalDownedCount] = useState<number>(0);
+
+  const [sourceMode, setSourceMode] = useState<DataSourceMode>('simulation');
+  const [mapaFeedMode, setMapaFeedMode] = useState<'live' | 'replay'>('live');
 
   const [simulationActive, setSimulationActive] = useState<boolean>(true);
   const [autoTracking, setAutoTracking] = useState<boolean>(true);
@@ -70,6 +74,8 @@ export const App: React.FC = () => {
           return;
         }
         setTracks(data.tracks || []);
+        if (data.source_mode !== undefined) setSourceMode(data.source_mode);
+        if (data.mapa_feed_mode !== undefined) setMapaFeedMode(data.mapa_feed_mode);
         if (data.simulation_active !== undefined) setSimulationActive(data.simulation_active);
         if (data.auto_tracking !== undefined) setAutoTracking(data.auto_tracking);
         if (data.emergency_override !== undefined) setEmergencyOverride(data.emergency_override);
@@ -132,6 +138,15 @@ export const App: React.FC = () => {
       try { ws?.close(); } catch { /* ignore */ }
     };
   }, []);
+
+  const handleChangeSourceMode = async (newMode: DataSourceMode) => {
+    setSourceMode(newMode);
+    await fetch(`${backendUrl}/api/v1/source/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: newMode })
+    });
+  };
 
   const handleToggleSimulation = async () => {
     await fetch(`${backendUrl}/api/v1/simulation/toggle`, { method: 'POST' });
@@ -305,12 +320,15 @@ export const App: React.FC = () => {
             zones={zones}
             recentDowned={recentDowned}
             totalDownedCount={totalDownedCount}
+            sourceMode={sourceMode}
+            mapaFeedMode={mapaFeedMode}
             allowMapClickToAdd={allowMapClickToAdd}
             isDrawingZone={isDrawingZone}
             simulationActive={simulationActive}
             autoTracking={autoTracking}
             emergencyOverride={emergencyOverride}
             threatInfo={threatInfo}
+            onChangeSourceMode={handleChangeSourceMode}
             onToggleMapClickToAdd={() => setAllowMapClickToAdd((prev) => !prev)}
             onStartDrawingZone={handleStartDrawingZone}
             onToggleSimulation={handleToggleSimulation}

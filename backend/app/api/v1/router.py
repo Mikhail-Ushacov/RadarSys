@@ -6,12 +6,14 @@ from app.api.v1.endpoints import (
     sensors,
     downed_drones,
     risk,
-    seed
+    seed,
+    data_source   # <- додано
 )
 from app.seed import zones
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
+api_v1_router.include_router(data_source.router)  # <- додано
 api_v1_router.include_router(simulation.router)
 api_v1_router.include_router(ew.router)
 api_v1_router.include_router(zones.router)

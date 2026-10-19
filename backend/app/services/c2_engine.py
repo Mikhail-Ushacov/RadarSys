@@ -20,14 +20,17 @@ from app.core.planner import InterceptionPlanner
 from app.core.risk_h3 import safety_at_enu as risk_safety_at_enu
 from app.hardware.pelco import PelcoDController
 from app.services.simulation import DroneSimulation
+from app.services.mapa_service import mapa_service
 from app.services.connection_manager import ws_manager
 from app.seed.settlement_sensors import SETTLEMENT_HUBS
 
 logger = logging.getLogger(__name__)
 
+
 class C2Engine:
     def __init__(self):
         self.drone = DroneSimulation()
+        self.source_mode: str = "simulation"  # "simulation" або "live_mapa"
         self.active_trackers: Dict[str, DroneKalmanFilter] = {}
         self.simulation_active: bool = True
         self.auto_tracking_enabled: bool = True
@@ -37,6 +40,7 @@ class C2Engine:
         self._recent_events: List[dict] = []
         self._hub_enu_cache: List[dict] = []
         self._last_tracker_meas_t: Dict[str, float] = {}
+        self._last_mapa_poll: float = 0.0
 
         for hub in SETTLEMENT_HUBS:
             hx, hy, _ = latlon_to_enu(hub["lat"], hub["lon"], 0.0)
@@ -47,6 +51,11 @@ class C2Engine:
                 "x": hx,
                 "y": hy
             })
+
+    def set_source_mode(self, mode: str):
+        self.source_mode = mode
+        self.active_trackers.clear()
+        self._last_tracker_meas_t.clear()
 
     def sanitize(self, o):
         if isinstance(o, float):
@@ -68,8 +77,12 @@ class C2Engine:
         self.active_trackers.clear()
         self._last_tracker_meas_t.clear()
         self._recent_events.clear()
-        self.drone.spawn_random()
-        return self.drone.id
+        if self.source_mode == "simulation":
+            self.drone.spawn_random()
+            return self.drone.id
+        else:
+            mapa_service.active_tracks.clear()
+            return "LIVE-MAPA-RESET"
 
     def toggle_auto_tracking(self) -> bool:
         self.auto_tracking_enabled = not self.auto_tracking_enabled
@@ -92,8 +105,23 @@ class C2Engine:
             dt = min(1.0, max(0.1, now - last_loop_time))
             last_loop_time = now
 
-            if self.simulation_active:
-                self.drone.step(dt)
+            # Опитування mapa.ua кожні 12 секунд у режимі live_mapa
+            if self.source_mode == "live_mapa":
+                if now - self._last_mapa_poll > 12.0:
+                    self._last_mapa_poll = now
+                    try:
+                        raw = await mapa_service.fetch_threats()
+                        mapa_service.sync_tracks(raw)
+                    except Exception as e:
+                        logger.warning(f"Помилка оновлення mapa.ua: {e}")
+
+                if self.simulation_active:
+                    mapa_service.step_tracks(dt)
+                current_active_drone = mapa_service.get_primary_track()
+            else:
+                if self.simulation_active:
+                    self.drone.step(dt)
+                current_active_drone = self.drone
 
             payload = {
                 "tracks": [],
@@ -102,6 +130,8 @@ class C2Engine:
                 "sensors": [],
                 "active_events": [],
                 "timestamp": now,
+                "source_mode": self.source_mode,
+                "mapa_feed_mode": mapa_service.source_mode,
                 "simulation_active": self.simulation_active,
                 "auto_tracking": self.auto_tracking_enabled,
                 "emergency_override": False,
@@ -185,369 +215,350 @@ class C2Engine:
                             "radius": s.detection_radius
                         })
 
-                # 3. Виявлення сенсорами БПЛА
-                drone_detected_this_frame = False
-                detected_by_name = None
-                detected_type = None
-                detection_note = ""
-
-                for s in db_sensors:
-                    if s.sensor_type == "target_asset":
-                        continue
-                    sx, sy, _ = latlon_to_enu(s.lat, s.lon, s.alt)
-                    dist_2d = math.hypot(self.drone.x - sx, self.drone.y - sy)
-
-                    if s.sensor_type == "camera":
-                        effective_r = s.detection_radius * self.drone.optical_visibility
-                        if dist_2d <= effective_r and self.drone.z <= 1200.0:
-                            drone_detected_this_frame = True
-                            detected_by_name = s.name
-                            detected_type = "camera"
-                            detection_note = f"Оптична фіксація {self.drone.drone_type} камерою ({int(dist_2d)}м)"
-                            break
-
-                    elif s.sensor_type == "acoustic":
-                        effective_r = s.detection_radius * self.drone.acoustic_loudness
-                        if self.drone.z > 800.0:
-                            effective_r *= (800.0 / self.drone.z)
-                        if dist_2d <= effective_r:
-                            drone_detected_this_frame = True
-                            detected_by_name = s.name
-                            detected_type = "acoustic"
-                            detection_note = f"Спектр ДВЗ {self.drone.drone_type} мікрофоном ({int(dist_2d)}м)"
-                            break
-
-                    elif s.sensor_type in ("rf_24ghz", "rf_detector"):
-                        if self.drone.rf_emission and dist_2d <= s.detection_radius:
-                            drone_detected_this_frame = True
-                            detected_by_name = s.name
-                            detected_type = "rf_24ghz"
-                            detection_note = f"Радіоперехоплення 2.4 ГГц {self.drone.drone_type} ({int(dist_2d)}м)"
-                            break
-
-                    elif s.sensor_type == "observation_post":
-                        effective_r = s.detection_radius * self.drone.optical_visibility
-                        if dist_2d <= effective_r:
-                            drone_detected_this_frame = True
-                            detected_by_name = s.name
-                            detected_type = "observation_post"
-                            detection_note = f"Візуальний контакт МВГ ({int(dist_2d)}м)"
-                            break
-
-                # 4. Дзвінки 112 (виключно в населених пунктах)
-                nearest_hub = None
-                min_hub_dist = float('inf')
-                for hub in self._hub_enu_cache:
-                    h_dist = math.hypot(self.drone.x - hub["x"], self.drone.y - hub["y"])
-                    if h_dist < min_hub_dist:
-                        min_hub_dist = h_dist
-                        nearest_hub = hub
-
-                if nearest_hub and min_hub_dist <= 2500.0 and (now - self.drone.last_112_time > 8.0):
-                    call_chance = 0.22 * self.drone.acoustic_loudness
-                    if random.random() < call_chance:
-                        self.drone.last_112_time = now
-                        drone_detected_this_frame = True
-                        detected_by_name = f"Дзвінок 112 ({nearest_hub['name']})"
-                        detected_type = "witness_report"
-
-                        detailed_witness = random.random() < 0.20
-                        if detailed_witness:
-                            detection_note = f"Очевидець ({nearest_hub['name']}): візуально спостерігає силует {self.drone.drone_type}"
-                            call_msg = f"Очевидець візуально бачить силует {self.drone.drone_type}"
-                        else:
-                            detection_note = f"Очевидець ({nearest_hub['name']}): повідомляє про характерний гуркіт дрона (візуально не видно)"
-                            call_msg = "Громадяни повідомляють про звук мопеда/ДВЗ на низькій висоті"
-
-                        call_lat = nearest_hub["lat"] + random.uniform(-0.003, 0.003)
-                        call_lon = nearest_hub["lon"] + random.uniform(-0.003, 0.003)
-                        self._recent_events.append({
-                            "id": int(now * 1000),
-                            "type": "witness_call",
-                            "title": f"СИГНАЛ 112: {nearest_hub['name'].upper()}",
-                            "message": call_msg,
-                            "lat": call_lat,
-                            "lon": call_lon,
-                            "time": now
-                        })
-
-                # Додавання точки контакту
-                new_point_added = False
-                if drone_detected_this_frame and self.drone.status != "CRASHED":
-                    if (not self.drone.detection_history) or (now - self.drone.detection_history[-1]["t"] >= 1.6):
-                        noise_sigma = 8.0 if detected_type == "camera" else (20.0 if detected_type == "acoustic" else 35.0)
-                        self.drone.detection_history.append({
-                            "x": self.drone.x + random.gauss(0, noise_sigma),
-                            "y": self.drone.y + random.gauss(0, noise_sigma),
-                            "z": self.drone.z + random.gauss(0, 3.0),
-                            "t": now,
-                            "sensor": detected_by_name,
-                            "type": detected_type,
-                            "note": detection_note,
-                            "noise_sigma": noise_sigma
-                        })
-                        new_point_added = True
-                        if len(self.drone.detection_history) > 10:
-                            self.drone.detection_history.pop(0)
-
-                # 5. Обробка та супровід треку
-                target_key = self.drone.id
-                num_detections = len(self.drone.detection_history)
+                # 3. Виявлення сенсорами БПЛА (працює однаково для симуляції та Live Mapa)
                 primary_target = None
 
-                # А. Якщо дрон збито (CRASHED) — відображаємо точні координати падіння на землі та радіус уламків
-                if self.drone.status == "CRASHED":
-                    c_lat, c_lon, _ = enu_to_latlon(self.drone.x, self.drone.y, 0.0)
-                    debris_radius = getattr(self.drone, "actual_debris_radius", self.drone.base_debris_radius)
-                    track_data = {
-                        "id": target_key,
-                        "drone_type": self.drone.drone_type,
-                        "status": "CRASHED",
-                        "detection_stage": "TRACKED",
-                        "detection_count": max(1, num_detections),
-                        "last_sensor": "Збито РЕБ (точка удару)",
-                        "lat": c_lat,
-                        "lon": c_lon,
-                        "alt": 0.0,
-                        "speed": 0.0,
-                        "heading": 0.0,
-                        "predicted_30s": None,
-                        "predicted_60s": None,
-                        "crash_point": [c_lat, c_lon],
-                        "debris_radius_m": debris_radius,
-                        "crash_safety": 0.0,
-                        "impact_ellipse": None,
-                        "is_safe_to_engage": False,
-                        "is_ci_critical": False,
-                        "ci_distance": None,
-                        "nearest_ci": None,
-                        "target_asset_name": self.drone.target_name,
-                        "raw_enu": [self.drone.x, self.drone.y, 0.0, 0.0, 0.0, 0.0]
-                    }
-                    payload["tracks"].append(track_data)
-                    primary_target = track_data
+                if current_active_drone is not None:
+                    target_drone = current_active_drone
+                    drone_detected_this_frame = False
+                    detected_by_name = None
+                    detected_type = None
+                    detection_note = ""
 
-                # Б. Якщо дрон летить і є 1 засічка (INITIAL CONTACT)
-                elif num_detections == 1:
-                    det = self.drone.detection_history[-1]
-                    det_lat, det_lon, det_alt = enu_to_latlon(det["x"], det["y"], det["z"])
-
-                    track_data = {
-                        "id": target_key,
-                        "drone_type": self.drone.drone_type,
-                        "status": "DETECTING",
-                        "detection_stage": "INITIAL_CONTACT",
-                        "detection_count": 1,
-                        "last_sensor": det["sensor"],
-                        "detection_timeline": [
-                            f"{datetime.fromtimestamp(det['t']).strftime('%H:%M:%S')} — 1-й контакт: {det['sensor']} ({det['note']})"
-                        ],
-                        "lat": det_lat,
-                        "lon": det_lon,
-                        "alt": det_alt,
-                        "speed": None,
-                        "heading": None,
-                        "predicted_30s": None,
-                        "predicted_60s": None,
-                        "crash_point": None,
-                        "debris_radius_m": self.drone.base_debris_radius,
-                        "crash_safety": None,
-                        "impact_ellipse": None,
-                        "is_safe_to_engage": False,
-                        "is_ci_critical": False,
-                        "ci_distance": None,
-                        "nearest_ci": None,
-                        "target_asset_name": "Не визначено (очікується 2-й контакт)...",
-                        "raw_enu": [det["x"], det["y"], det["z"], 0.0, 0.0, 0.0]
-                    }
-                    payload["tracks"].append(track_data)
-                    primary_target = track_data
-
-                # В. Якщо дрон летить і є >= 2 засічок (TRACKED)
-                elif num_detections >= 2:
-                    p1 = self.drone.detection_history[-2]
-                    p2 = self.drone.detection_history[-1]
-                    dt_meas = max(0.1, p2["t"] - p1["t"])
-                    calc_vx = (p2["x"] - p1["x"]) / dt_meas
-                    calc_vy = (p2["y"] - p1["y"]) / dt_meas
-                    calc_vz = (p2["z"] - p1["z"]) / dt_meas
-
-                    last_meas_t = self._last_tracker_meas_t.get(target_key, 0.0)
-
-                    if target_key not in self.active_trackers:
-                        tracker = DroneKalmanFilter(p2["x"], p2["y"], p2["z"])
-                        tracker.state[3] = calc_vx
-                        tracker.state[4] = calc_vy
-                        tracker.state[5] = calc_vz
-                        self.active_trackers[target_key] = tracker
-                        self._last_tracker_meas_t[target_key] = p2["t"]
-                    else:
-                        tracker = self.active_trackers[target_key]
-                        # Прогнозуємо рух вперед за реальний минулий час dt
-                        tracker.predict(dt)
-                        # Оновлюємо фільтр тільки якщо прийшла НОВА точка вимірювання
-                        if new_point_added and p2["t"] > last_meas_t:
-                            meas_r = p2.get("noise_sigma", 25.0) ** 2
-                            tracker.update(np.array([p2["x"], p2["y"], p2["z"]]), R=meas_r)
-                            self._last_tracker_meas_t[target_key] = p2["t"]
-
-                    sx, sy, sz = tracker.state[0], tracker.state[1], tracker.state[2]
-                    vx, vy, vz = tracker.state[3], tracker.state[4], tracker.state[5]
-                    speed = float(np.sqrt(vx**2 + vy**2 + vz**2))
-                    heading = (np.degrees(np.arctan2(vx, vy)) + 360.0) % 360.0
-
-                    t_lat, t_lon, t_alt = enu_to_latlon(sx, sy, sz)
-
-                    # Плавне та стабільне лінійне прогнозування без квадратичних ривків
-                    p30_x = sx + vx * 30.0
-                    p30_y = sy + vy * 30.0
-                    p60_x = sx + vx * 60.0
-                    p60_y = sy + vy * 60.0
-                    lat_30, lon_30, _ = enu_to_latlon(p30_x, p30_y, sz)
-                    lat_60, lon_60, _ = enu_to_latlon(p60_x, p60_y, sz)
-
-                    predicted_target_ci, _ = InterceptionPlanner.predict_intended_target(sx, sy, vx, vy, ci_assets)
-                    intended_target_display = predicted_target_ci if predicted_target_ci else self.drone.target_name
-
-                    imp_x, imp_y, t_fall, sig_al, sig_cr, imp_hdg = InterceptionPlanner.predict_impact_ellipse(
-                        sx, sy, sz, vx, vy, vz, tracker.P
-                    )
-                    imp_lat, imp_lon, _ = enu_to_latlon(imp_x, imp_y, 0)
-                    try:
-                        crash_safety = risk_safety_at_enu(
-                            imp_x, imp_y, imp_lat, imp_lon, safe_shapely, caution_shapely, danger_shapely, ci_assets
-                        )
-                    except Exception:
-                        crash_safety = 0.45
-
-                    is_safe = crash_safety >= 0.60
-
-                    ellipse_pts = []
-                    try:
-                        for _k in range(12):
-                            _a = 2.0 * math.pi * _k / 12.0
-                            _ex = 2.0 * sig_al * math.cos(_a)
-                            _ey = 2.0 * sig_cr * math.sin(_a)
-                            _rx = _ex * math.cos(imp_hdg) + _ey * math.sin(imp_hdg)
-                            _ry = -_ex * math.sin(imp_hdg) + _ey * math.cos(imp_hdg)
-                            _elat, _elon, _ = enu_to_latlon(imp_x + _rx, imp_y + _ry, 0)
-                            ellipse_pts.append([_elat, _elon])
-                    except Exception:
-                        ellipse_pts = []
-
-                    is_ci_critical, min_dist_ci, nearest_ci_name = InterceptionPlanner.evaluate_ci_proximity(
-                        sx, sy, ci_assets, threshold_m=2500.0
-                    )
-
-                    timeline = []
-                    for d_item in self.drone.detection_history[-3:]:
-                        t_str = datetime.fromtimestamp(d_item["t"]).strftime("%H:%M:%S")
-                        timeline.append(f"{t_str} — {d_item['sensor']}: {d_item['note']}")
-
-                    dist_between_last = math.hypot(p2["x"] - p1["x"], p2["y"] - p1["y"])
-                    calc_note = f"ΔS={dist_between_last:.0f}м за {dt_meas:.1f}с -> V={(speed*3.6):.0f} км/год | Курс {heading:.0f}°"
-
-                    track_data = {
-                        "id": target_key,
-                        "drone_type": self.drone.drone_type,
-                        "status": self.drone.status,
-                        "detection_stage": "TRACKED",
-                        "detection_count": num_detections,
-                        "last_sensor": p2["sensor"],
-                        "detection_timeline": timeline,
-                        "kinematics_note": calc_note,
-                        "lat": t_lat,
-                        "lon": t_lon,
-                        "alt": max(0.0, t_alt),
-                        "speed": speed if self.drone.status != "CRASHED" else 0.0,
-                        "heading": heading,
-                        "predicted_30s": [lat_30, lon_30] if self.drone.status != "CRASHED" else [t_lat, t_lon],
-                        "predicted_60s": [lat_60, lon_60] if self.drone.status != "CRASHED" else [t_lat, t_lon],
-                        "crash_point": [imp_lat, imp_lon],
-                        "debris_radius_m": self.drone.base_debris_radius,
-                        "crash_safety": round(crash_safety * 100.0, 1),
-                        "impact_ellipse": ellipse_pts,
-                        "is_safe_to_engage": is_safe if self.drone.status == "CRUISING" else False,
-                        "is_ci_critical": is_ci_critical if self.drone.status == "CRUISING" else False,
-                        "ci_distance": round(min_dist_ci, 0) if (nearest_ci_name and math.isfinite(min_dist_ci)) else None,
-                        "nearest_ci": nearest_ci_name,
-                        "target_asset_name": intended_target_display,
-                        "raw_enu": [sx, sy, sz, vx, vy, vz]
-                    }
-                    payload["tracks"].append(track_data)
-                    primary_target = track_data
-
-                # 6. Фіксація збиття в БД
-                if self.drone.status == "CRASHED" and not self.drone.downed_saved:
-                    c_lat, c_lon, _ = enu_to_latlon(self.drone.x, self.drone.y, 0.0)
-                    pt = Point(self.drone.x, self.drone.y)
-                    crash_zone_name = "Відкрита місцевість"
-                    crash_zone_type = "safe"
-
-                    for poly, zname, ztype in self._zone_cache["items"]:
-                        try:
-                            if poly.contains(pt):
-                                prefix = '🟢 ' if ztype == 'safe' else ('🟡 ' if ztype == 'caution' else '🔴 ')
-                                crash_zone_name = f"{prefix}{zname}"
-                                crash_zone_type = ztype
-                                break
-                        except Exception:
+                    for s in db_sensors:
+                        if s.sensor_type == "target_asset":
                             continue
+                        sx, sy, _ = latlon_to_enu(s.lat, s.lon, s.alt)
+                        dist_2d = math.hypot(target_drone.x - sx, target_drone.y - sy)
 
-                    debris_radius = round(self.drone.base_debris_radius + random.uniform(15.0, 45.0), 1)
-                    self.drone.actual_debris_radius = debris_radius
+                        if s.sensor_type == "camera":
+                            effective_r = s.detection_radius * target_drone.optical_visibility
+                            if dist_2d <= effective_r and target_drone.z <= 1200.0:
+                                drone_detected_this_frame = True
+                                detected_by_name = s.name
+                                detected_type = "camera"
+                                detection_note = f"Оптична фіксація {target_drone.drone_type} ({int(dist_2d)}м)"
+                                break
 
-                    called_112 = False
-                    emergency_note = "Утилізовано в Killbox (зелена зона). Загрози цивільній забудові немає."
+                        elif s.sensor_type == "acoustic":
+                            effective_r = s.detection_radius * target_drone.acoustic_loudness
+                            if target_drone.z > 800.0:
+                                effective_r *= (800.0 / target_drone.z)
+                            if dist_2d <= effective_r:
+                                drone_detected_this_frame = True
+                                detected_by_name = s.name
+                                detected_type = "acoustic"
+                                detection_note = f"Спектр ДВЗ {target_drone.drone_type} ({int(dist_2d)}м)"
+                                break
 
-                    if crash_zone_type in ("danger", "caution"):
-                        called_112 = True
-                        zone_label = "ЧЕРВОНІЙ ЗОНІ (житлова забудова)" if crash_zone_type == "danger" else "ПОМАРАНЧЕВІЙ БУФЕРНІЙ ЗОНІ"
-                        emergency_note = (
-                            f"🚨 ВИКЛИК 112 / ДСНС: Уламки {self.drone.drone_type} впали у {zone_label}!\n"
-                            f"Точка: {c_lat:.5f}°, {c_lon:.5f}°. Розліт уламків ~{debris_radius}м. "
-                            f"Направлено пожежно-рятувальні підрозділи ДСНС та МОЗ!"
+                        elif s.sensor_type in ("rf_24ghz", "rf_detector"):
+                            if target_drone.rf_emission and dist_2d <= s.detection_radius:
+                                drone_detected_this_frame = True
+                                detected_by_name = s.name
+                                detected_type = "rf_24ghz"
+                                detection_note = f"Радіоперехоплення 2.4 ГГц {target_drone.drone_type} ({int(dist_2d)}м)"
+                                break
+
+                        elif s.sensor_type == "observation_post":
+                            effective_r = s.detection_radius * target_drone.optical_visibility
+                            if dist_2d <= effective_r:
+                                drone_detected_this_frame = True
+                                detected_by_name = s.name
+                                detected_type = "observation_post"
+                                detection_note = f"Візуальний контакт МВГ ({int(dist_2d)}м)"
+                                break
+
+                    # 4. Дзвінки 112
+                    nearest_hub = None
+                    min_hub_dist = float('inf')
+                    for hub in self._hub_enu_cache:
+                        h_dist = math.hypot(target_drone.x - hub["x"], target_drone.y - hub["y"])
+                        if h_dist < min_hub_dist:
+                            min_hub_dist = h_dist
+                            nearest_hub = hub
+
+                    if nearest_hub and min_hub_dist <= 2500.0 and (now - target_drone.last_112_time > 8.0):
+                        call_chance = 0.22 * target_drone.acoustic_loudness
+                        if random.random() < call_chance:
+                            target_drone.last_112_time = now
+                            drone_detected_this_frame = True
+                            detected_by_name = f"Дзвінок 112 ({nearest_hub['name']})"
+                            detected_type = "witness_report"
+
+                            call_msg = f"Очевидець ({nearest_hub['name']}): спостерігає проліт {target_drone.drone_type}"
+                            self._recent_events.append({
+                                "id": int(now * 1000),
+                                "type": "witness_call",
+                                "title": f"СИГНАЛ 112: {nearest_hub['name'].upper()}",
+                                "message": call_msg,
+                                "lat": nearest_hub["lat"],
+                                "lon": nearest_hub["lon"],
+                                "time": now
+                            })
+
+                    new_point_added = False
+                    if drone_detected_this_frame and target_drone.status != "CRASHED":
+                        if (not target_drone.detection_history) or (now - target_drone.detection_history[-1]["t"] >= 1.6):
+                            noise_sigma = 8.0 if detected_type == "camera" else (20.0 if detected_type == "acoustic" else 35.0)
+                            target_drone.detection_history.append({
+                                "x": target_drone.x + random.gauss(0, noise_sigma),
+                                "y": target_drone.y + random.gauss(0, noise_sigma),
+                                "z": target_drone.z + random.gauss(0, 3.0),
+                                "t": now,
+                                "sensor": detected_by_name,
+                                "type": detected_type,
+                                "note": detection_note,
+                                "noise_sigma": noise_sigma
+                            })
+                            new_point_added = True
+                            if len(target_drone.detection_history) > 10:
+                                target_drone.detection_history.pop(0)
+
+                    target_key = target_drone.id
+                    num_detections = len(target_drone.detection_history)
+
+                    # 5. Обробка треку
+                    if target_drone.status == "CRASHED":
+                        c_lat, c_lon, _ = enu_to_latlon(target_drone.x, target_drone.y, 0.0)
+                        debris_radius = getattr(target_drone, "actual_debris_radius", target_drone.base_debris_radius)
+                        track_data = {
+                            "id": target_key,
+                            "drone_type": target_drone.drone_type,
+                            "status": "CRASHED",
+                            "detection_stage": "TRACKED",
+                            "detection_count": max(1, num_detections),
+                            "last_sensor": "Збито РЕБ (точка удару)",
+                            "lat": c_lat,
+                            "lon": c_lon,
+                            "alt": 0.0,
+                            "speed": 0.0,
+                            "heading": 0.0,
+                            "predicted_30s": None,
+                            "predicted_60s": None,
+                            "crash_point": [c_lat, c_lon],
+                            "debris_radius_m": debris_radius,
+                            "crash_safety": 0.0,
+                            "impact_ellipse": None,
+                            "is_safe_to_engage": False,
+                            "is_ci_critical": False,
+                            "ci_distance": None,
+                            "nearest_ci": None,
+                            "target_asset_name": target_drone.target_name,
+                            "raw_enu": [target_drone.x, target_drone.y, 0.0, 0.0, 0.0, 0.0]
+                        }
+                        payload["tracks"].append(track_data)
+                        primary_target = track_data
+
+                    elif num_detections == 1:
+                        det = target_drone.detection_history[-1]
+                        det_lat, det_lon, det_alt = enu_to_latlon(det["x"], det["y"], det["z"])
+                        track_data = {
+                            "id": target_key,
+                            "drone_type": target_drone.drone_type,
+                            "status": "DETECTING",
+                            "detection_stage": "INITIAL_CONTACT",
+                            "detection_count": 1,
+                            "last_sensor": det["sensor"],
+                            "detection_timeline": [
+                                f"{datetime.fromtimestamp(det['t']).strftime('%H:%M:%S')} — 1-й контакт: {det['sensor']} ({det['note']})"
+                            ],
+                            "lat": det_lat,
+                            "lon": det_lon,
+                            "alt": det_alt,
+                            "speed": None,
+                            "heading": None,
+                            "predicted_30s": None,
+                            "predicted_60s": None,
+                            "crash_point": None,
+                            "debris_radius_m": target_drone.base_debris_radius,
+                            "crash_safety": None,
+                            "impact_ellipse": None,
+                            "is_safe_to_engage": False,
+                            "is_ci_critical": False,
+                            "ci_distance": None,
+                            "nearest_ci": None,
+                            "target_asset_name": "Очікується 2-й контакт...",
+                            "raw_enu": [det["x"], det["y"], det["z"], 0.0, 0.0, 0.0]
+                        }
+                        payload["tracks"].append(track_data)
+                        primary_target = track_data
+
+                    elif num_detections >= 2:
+                        p1 = target_drone.detection_history[-2]
+                        p2 = target_drone.detection_history[-1]
+                        dt_meas = max(0.1, p2["t"] - p1["t"])
+                        calc_vx = (p2["x"] - p1["x"]) / dt_meas
+                        calc_vy = (p2["y"] - p1["y"]) / dt_meas
+                        calc_vz = (p2["z"] - p1["z"]) / dt_meas
+
+                        last_meas_t = self._last_tracker_meas_t.get(target_key, 0.0)
+
+                        if target_key not in self.active_trackers:
+                            tracker = DroneKalmanFilter(p2["x"], p2["y"], p2["z"])
+                            tracker.state[3] = calc_vx
+                            tracker.state[4] = calc_vy
+                            tracker.state[5] = calc_vz
+                            self.active_trackers[target_key] = tracker
+                            self._last_tracker_meas_t[target_key] = p2["t"]
+                        else:
+                            tracker = self.active_trackers[target_key]
+                            tracker.predict(dt)
+                            if new_point_added and p2["t"] > last_meas_t:
+                                meas_r = p2.get("noise_sigma", 25.0) ** 2
+                                tracker.update(np.array([p2["x"], p2["y"], p2["z"]]), R=meas_r)
+                                self._last_tracker_meas_t[target_key] = p2["t"]
+
+                        sx, sy, sz = tracker.state[0], tracker.state[1], tracker.state[2]
+                        vx, vy, vz = tracker.state[3], tracker.state[4], tracker.state[5]
+                        speed = float(np.sqrt(vx**2 + vy**2 + vz**2))
+                        heading = (np.degrees(np.arctan2(vx, vy)) + 360.0) % 360.0
+
+                        t_lat, t_lon, t_alt = enu_to_latlon(sx, sy, sz)
+                        p30_x, p30_y = sx + vx * 30.0, sy + vy * 30.0
+                        p60_x, p60_y = sx + vx * 60.0, sy + vy * 60.0
+                        lat_30, lon_30, _ = enu_to_latlon(p30_x, p30_y, sz)
+                        lat_60, lon_60, _ = enu_to_latlon(p60_x, p60_y, sz)
+
+                        predicted_target_ci, _ = InterceptionPlanner.predict_intended_target(sx, sy, vx, vy, ci_assets)
+                        intended_target_display = predicted_target_ci if predicted_target_ci else target_drone.target_name
+
+                        imp_x, imp_y, t_fall, sig_al, sig_cr, imp_hdg = InterceptionPlanner.predict_impact_ellipse(
+                            sx, sy, sz, vx, vy, vz, tracker.P
+                        )
+                        imp_lat, imp_lon, _ = enu_to_latlon(imp_x, imp_y, 0)
+                        try:
+                            crash_safety = risk_safety_at_enu(
+                                imp_x, imp_y, imp_lat, imp_lon, safe_shapely, caution_shapely, danger_shapely, ci_assets
+                            )
+                        except Exception:
+                            crash_safety = 0.45
+
+                        is_safe = crash_safety >= 0.60
+
+                        ellipse_pts = []
+                        try:
+                            for _k in range(12):
+                                _a = 2.0 * math.pi * _k / 12.0
+                                _ex = 2.0 * sig_al * math.cos(_a)
+                                _ey = 2.0 * sig_cr * math.sin(_a)
+                                _rx = _ex * math.cos(imp_hdg) + _ey * math.sin(imp_hdg)
+                                _ry = -_ex * math.sin(imp_hdg) + _ey * math.cos(imp_hdg)
+                                _elat, _elon, _ = enu_to_latlon(imp_x + _rx, imp_y + _ry, 0)
+                                ellipse_pts.append([_elat, _elon])
+                        except Exception:
+                            ellipse_pts = []
+
+                        is_ci_critical, min_dist_ci, nearest_ci_name = InterceptionPlanner.evaluate_ci_proximity(
+                            sx, sy, ci_assets, threshold_m=2500.0
                         )
 
-                        self._recent_events.append({
-                            "id": int(now * 1000),
-                            "type": "emergency_112_call",
-                            "title": "СЛУЖБА 112 / ДСНС: ПАДІННЯ УЛАМКІВ БПЛА",
-                            "message": emergency_note,
-                            "lat": c_lat,
-                            "lon": c_lon,
-                            "time": now
-                        })
+                        timeline = []
+                        for d_item in target_drone.detection_history[-3:]:
+                            t_str = datetime.fromtimestamp(d_item["t"]).strftime("%H:%M:%S")
+                            timeline.append(f"{t_str} — {d_item['sensor']}: {d_item['note']}")
 
-                        payload["emergency_112_alert"] = {
-                            "called": True,
-                            "message": emergency_note,
-                            "lat": c_lat,
-                            "lon": c_lon,
-                            "radius": debris_radius,
-                            "drone_type": self.drone.drone_type
+                        track_data = {
+                            "id": target_key,
+                            "drone_type": target_drone.drone_type,
+                            "status": target_drone.status,
+                            "detection_stage": "TRACKED",
+                            "detection_count": num_detections,
+                            "last_sensor": p2["sensor"],
+                            "detection_timeline": timeline,
+                            "lat": t_lat,
+                            "lon": t_lon,
+                            "alt": max(0.0, t_alt),
+                            "speed": speed if target_drone.status != "CRASHED" else 0.0,
+                            "heading": heading,
+                            "predicted_30s": [lat_30, lon_30] if target_drone.status != "CRASHED" else [t_lat, t_lon],
+                            "predicted_60s": [lat_60, lon_60] if target_drone.status != "CRASHED" else [t_lat, t_lon],
+                            "crash_point": [imp_lat, imp_lon],
+                            "debris_radius_m": target_drone.base_debris_radius,
+                            "crash_safety": round(crash_safety * 100.0, 1),
+                            "impact_ellipse": ellipse_pts,
+                            "is_safe_to_engage": is_safe if target_drone.status == "CRUISING" else False,
+                            "is_ci_critical": is_ci_critical if target_drone.status == "CRUISING" else False,
+                            "ci_distance": round(min_dist_ci, 0) if (nearest_ci_name and math.isfinite(min_dist_ci)) else None,
+                            "nearest_ci": nearest_ci_name,
+                            "target_asset_name": intended_target_display,
+                            "raw_enu": [sx, sy, sz, vx, vy, vz]
                         }
+                        payload["tracks"].append(track_data)
+                        primary_target = track_data
 
-                    downed_record = DownedDroneModel(
-                        drone_id=self.drone.id,
-                        drone_type=self.drone.drone_type,
-                        spawn_time=self.drone.spawn_time,
-                        downed_time=datetime.now(),
-                        spawn_lat=self.drone.spawn_lat,
-                        spawn_lon=self.drone.spawn_lon,
-                        target_name=self.drone.target_name,
-                        interceptor_name=self.drone.interceptor_name,
-                        crash_lat=c_lat,
-                        crash_lon=c_lon,
-                        crash_zone=crash_zone_name,
-                        debris_radius_m=debris_radius,
-                        emergency_112_called=called_112,
-                        emergency_details=emergency_note,
-                        status="CRASHED"
-                    )
-                    session.add(downed_record)
-                    db_dirty = True
-                    self.drone.downed_saved = True
+                    # 6. Збиття в БД
+                    if target_drone.status == "CRASHED" and not target_drone.downed_saved:
+                        c_lat, c_lon, _ = enu_to_latlon(target_drone.x, target_drone.y, 0.0)
+                        pt = Point(target_drone.x, target_drone.y)
+                        crash_zone_name = "Відкрита місцевість"
+                        crash_zone_type = "safe"
+
+                        for poly, zname, ztype in self._zone_cache["items"]:
+                            try:
+                                if poly.contains(pt):
+                                    prefix = '🟢 ' if ztype == 'safe' else ('🟡 ' if ztype == 'caution' else '🔴 ')
+                                    crash_zone_name = f"{prefix}{zname}"
+                                    crash_zone_type = ztype
+                                    break
+                            except Exception:
+                                continue
+
+                        debris_radius = round(target_drone.base_debris_radius + random.uniform(15.0, 45.0), 1)
+                        target_drone.actual_debris_radius = debris_radius
+
+                        called_112 = False
+                        emergency_note = "Утилізовано в Killbox (зелена зона). Безпечно для цивільних."
+
+                        if crash_zone_type in ("danger", "caution"):
+                            called_112 = True
+                            zone_label = "ЧЕРВОНІЙ ЗОНІ (житлова забудова)" if crash_zone_type == "danger" else "ПОМАРАНЧЕВІЙ БУФЕРНІЙ ЗОНІ"
+                            emergency_note = (
+                                f"🚨 СЛУЖБА 112 / ДСНС: Уламки {target_drone.drone_type} впали у {zone_label}!\n"
+                                f"Точка: {c_lat:.5f}°, {c_lon:.5f}°. Розліт ~{debris_radius}м. Виїхали екіпажі ДСНС."
+                            )
+
+                            self._recent_events.append({
+                                "id": int(now * 1000),
+                                "type": "emergency_112_call",
+                                "title": "СЛУЖБА 112 / ДСНС: ПАДІННЯ БПЛА",
+                                "message": emergency_note,
+                                "lat": c_lat,
+                                "lon": c_lon,
+                                "time": now
+                            })
+
+                            payload["emergency_112_alert"] = {
+                                "called": True,
+                                "message": emergency_note,
+                                "lat": c_lat,
+                                "lon": c_lon,
+                                "radius": debris_radius,
+                                "drone_type": target_drone.drone_type
+                            }
+
+                        source_label = "live_mapa" if (self.source_mode == "live_mapa" or "MAPA" in target_drone.id) else "simulation"
+
+                        downed_record = DownedDroneModel(
+                            drone_id=target_drone.id,
+                            drone_type=target_drone.drone_type,
+                            data_source=source_label,
+                            spawn_time=target_drone.spawn_time,
+                            downed_time=datetime.now(),
+                            spawn_lat=target_drone.spawn_lat,
+                            spawn_lon=target_drone.spawn_lon,
+                            target_name=target_drone.target_name,
+                            interceptor_name=target_drone.interceptor_name,
+                            crash_lat=c_lat,
+                            crash_lon=c_lon,
+                            crash_zone=crash_zone_name,
+                            debris_radius_m=debris_radius,
+                            emergency_112_called=called_112,
+                            emergency_details=emergency_note,
+                            status="CRASHED"
+                        )
+                        session.add(downed_record)
+                        db_dirty = True
+                        target_drone.downed_saved = True
 
                 # 7. Робота РЕБ
                 q_nodes = await session.execute(select(EWNodeModel))
@@ -590,7 +601,6 @@ class C2Engine:
                                 left=(az_diff < 0.0),
                                 up=(elevation > 15.0)
                             )
-                            logger.debug("pelco node=%s az=%.1f el=%.1f", node.id, target_azimuth, elevation)
 
                     if primary_target and primary_target.get("status") == "CRUISING" and primary_target.get("detection_stage") == "TRACKED":
                         want_tx = False
@@ -602,7 +612,7 @@ class C2Engine:
 
                         elif self.auto_tracking_enabled and primary_target["is_safe_to_engage"] and node.id == best_interceptor_id and node.is_armed:
                             want_tx = True
-                            payload["threat_info"] = f"🎯 ХІРУРГІЧНЕ ПРИДУШЕННЯ: {node.name} глушить {self.drone.drone_type} над зеленою зоною"
+                            payload["threat_info"] = f"🎯 ХІРУРГІЧНЕ ПРИДУШЕННЯ: {node.name} глушить {primary_target['drone_type']} над зеленою зоною"
 
                         if node.is_transmitting != want_tx and want_tx:
                             node.is_transmitting = True
@@ -619,8 +629,9 @@ class C2Engine:
                     if node.is_transmitting and primary_target and primary_target.get("status") == "CRUISING":
                         angle_diff = abs((target_azimuth - node.current_azimuth + 180.0) % 360.0 - 180.0)
                         if distance <= node.max_range and angle_diff <= (node.beamwidth / 2.0 + 4.0):
-                            self.drone.apply_jamming(node.name)
-                            payload["threat_info"] = f"⚡ ВЛУЧАННЯ РЕБ: {node.name} зірвав наведення {self.drone.id} ({self.drone.drone_type})!"
+                            if current_active_drone is not None:
+                                current_active_drone.apply_jamming(node.name)
+                            payload["threat_info"] = f"⚡ ВЛУЧАННЯ РЕБ: {node.name} зірвав наведення {primary_target['id']}!"
 
                     lead_coord = None
                     if (has_lead and lead_x is not None and lead_y is not None and lead_z is not None
@@ -641,7 +652,7 @@ class C2Engine:
                         "target_lead_coord": lead_coord
                     })
 
-                # 8. Останні збиті дрони з точними числовими координатами
+                # 8. Журнал збитих
                 q_downed = await session.execute(
                     select(DownedDroneModel).order_by(desc(DownedDroneModel.id)).limit(8)
                 )
@@ -650,7 +661,8 @@ class C2Engine:
                     payload["recent_downed"].append({
                         "id": row.id,
                         "drone_id": row.drone_id,
-                        "drone_type": getattr(row, "drone_type", "Shahed-136 (Герань-2)"),
+                        "drone_type": getattr(row, "drone_type", "Shahed-136"),
+                        "data_source": getattr(row, "data_source", "live_mapa" if "MAPA" in (row.drone_id or "") else "simulation"),
                         "spawn_time": row.spawn_time.strftime("%d.%m.%Y %H:%M:%S") if row.spawn_time else "-",
                         "downed_time": row.downed_time.strftime("%d.%m.%Y %H:%M:%S") if row.downed_time else "-",
                         "spawn_coords": f"{row.spawn_lat:.4f}°, {row.spawn_lon:.4f}°",
@@ -675,5 +687,6 @@ class C2Engine:
                     await session.rollback()
 
             await ws_manager.broadcast_json(self.sanitize(payload))
+
 
 c2_engine = C2Engine()

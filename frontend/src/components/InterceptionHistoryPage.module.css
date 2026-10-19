@@ -4,7 +4,7 @@
 .title { display: flex; align-items: center; gap: var(--space-sm); margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; }
 .titleIco { color: var(--safe); display: inline-flex; }
 .actions { display: flex; gap: var(--space-sm); align-items: center; }
-.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-md); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--space-md); }
 .stat { background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-md); }
 .statT { font-size: 0.7rem; letter-spacing: 0.08em; color: var(--text-2); }
 .statV { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
@@ -31,3 +31,4 @@
 .zoneDanger { color: var(--danger); font-weight: 500; }
 .center { text-align: center; }
 .empty { padding: 3rem; text-align: center; color: var(--text-2); display: flex; flex-direction: column; align-items: center; gap: var(--space-sm); }
+.sourceBadge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 700; }

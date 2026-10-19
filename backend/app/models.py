@@ -45,6 +45,7 @@ class DownedDroneModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     drone_id = Column(String, index=True)
     drone_type = Column(String, default="Shahed-136 (Герань-2)")
+    data_source = Column(String, default="simulation")  # <- "simulation" або "live_mapa"
     spawn_time = Column(DateTime(timezone=True), server_default=func.now())
     downed_time = Column(DateTime(timezone=True), server_default=func.now())
     spawn_lat = Column(Float, nullable=False)

@@ -17,6 +17,7 @@ async def get_downed_drones():
                 "id": r.id,
                 "drone_id": r.drone_id,
                 "drone_type": getattr(r, "drone_type", "Shahed-136 (Герань-2)"),
+                "data_source": getattr(r, "data_source", "live_mapa" if "MAPA" in (r.drone_id or "") else "simulation"),
                 "spawn_time": r.spawn_time.strftime("%d.%m.%Y %H:%M:%S") if r.spawn_time else "-",
                 "downed_time": r.downed_time.strftime("%d.%m.%Y %H:%M:%S") if r.downed_time else "-",
                 "spawn_coords": f"{r.spawn_lat:.5f}°, {r.spawn_lon:.5f}°",

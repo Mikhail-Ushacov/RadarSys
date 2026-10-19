@@ -1,6 +1,6 @@
 // frontend/src/components/TargetHUD.tsx
 import React from 'react';
-import { Track, EWNode, TacticalSensor, TacticalZone, DownedDroneDetailed } from '../types';
+import { Track, EWNode, TacticalSensor, TacticalZone, DownedDroneDetailed, DataSourceMode } from '../types';
 import {
   Crosshair, Zap, Plus, Camera, Mic,
   Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3,
@@ -12,6 +12,7 @@ import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { Section } from './ui/Section';
 import { Toggle } from './ui/Toggle';
+import { ModeSwitcher } from './ui/ModeSwitcher';
 import styles from './TargetHUD.module.css';
 
 interface Props {
@@ -21,12 +22,15 @@ interface Props {
   zones: TacticalZone[];
   recentDowned: DownedDroneDetailed[];
   totalDownedCount: number;
+  sourceMode: DataSourceMode;
+  mapaFeedMode?: 'live' | 'replay';
   allowMapClickToAdd: boolean;
   isDrawingZone: boolean;
   simulationActive: boolean;
   autoTracking: boolean;
   emergencyOverride: boolean;
   threatInfo: string | null;
+  onChangeSourceMode: (mode: DataSourceMode) => void;
   onToggleMapClickToAdd: () => void;
   onStartDrawingZone: () => void;
   onToggleSimulation: () => void;
@@ -40,7 +44,8 @@ interface Props {
 
 export const TargetHUD: React.FC<Props> = ({
   tracks, ewNodes, sensors, zones, recentDowned, totalDownedCount,
-  allowMapClickToAdd, isDrawingZone, simulationActive, autoTracking, emergencyOverride, threatInfo,
+  sourceMode, mapaFeedMode, allowMapClickToAdd, isDrawingZone, simulationActive,
+  autoTracking, emergencyOverride, threatInfo, onChangeSourceMode,
   onToggleMapClickToAdd, onStartDrawingZone, onToggleSimulation, onToggleAutoTracking,
   onResetSimulation, onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage
 }) => {
@@ -59,6 +64,13 @@ export const TargetHUD: React.FC<Props> = ({
           </Button>
         </div>
       </div>
+
+      {/* СЛАЙДЕР ВИБОРУ РЕЖИМУ СИМУЛЯЦІЯ / MAPA.UA */}
+      <ModeSwitcher
+        mode={sourceMode}
+        mapaFeedMode={mapaFeedMode}
+        onChangeMode={onChangeSourceMode}
+      />
 
       {threatInfo && (
         <div className={`${styles.alert}${emergencyOverride ? ` ${styles.alertCritical}` : ''}`}>
@@ -86,8 +98,8 @@ export const TargetHUD: React.FC<Props> = ({
           >
             {simulationActive ? <><Square size={13} /> ПАУЗА</> : <><Play size={13} /> СТАРТ</>}
           </Button>
-          <Button variant="default" onClick={onResetSimulation} title="Запустити новий тестовий дрон за межами зони спостереження">
-            <RotateCcw size={14} /> Тестовий спавн БПЛА
+          <Button variant="default" onClick={onResetSimulation} title="Скинути або оновити ціль">
+            <RotateCcw size={14} /> {sourceMode === 'live_mapa' ? 'Оновити потік' : 'Спавн БПЛА'}
           </Button>
         </div>
 
@@ -113,12 +125,12 @@ export const TargetHUD: React.FC<Props> = ({
       </div>
 
       <div className={styles.scroll}>
-        <Section title="Повітряна обстановка (БПЛА)" action={<span className="t-mono">{tracks.filter(t => t.status !== 'CRASHED').length}</span>}>
+        <Section title={`Повітряна обстановка (${sourceMode === 'live_mapa' ? 'MAPA.UA' : 'СИМУЛЯТОР'})`} action={<span className="t-mono">{tracks.filter(t => t.status !== 'CRASHED').length}</span>}>
           {tracks.length === 0 ? (
             <div className={styles.empty}>
               Цілей у зоні спостереження не виявлено.<br />
-              <b>Дрон летить за межами міста (34-45 км).</b><br />
-              Очікується 1-й контакт з датчиків або свідків...
+              <b>{sourceMode === 'live_mapa' ? 'Опитування API mapa.ua триває...' : 'Дрон летить за межами міста (34-45 км).'}</b><br />
+              Очікується контакт сенсорів або свідків...
             </div>
           ) : (
             tracks.map((t) => {
@@ -161,12 +173,6 @@ export const TargetHUD: React.FC<Props> = ({
                         </div>
                         <div className="t-mono">Висота: <b>{t.alt.toFixed(0)} м</b> | Засічок: <b>{t.detection_count || 2}</b></div>
 
-                        {t.kinematics_note && (
-                          <div className={`${styles.note} t-mono`}>
-                            {t.kinematics_note}
-                          </div>
-                        )}
-
                         {t.target_asset_name && (
                           <div className={styles.note}>
                             Ціль атаки: <b>{t.target_asset_name}</b>
@@ -207,28 +213,34 @@ export const TargetHUD: React.FC<Props> = ({
             <p className={styles.note}>Журнал порожній (цілі ще не утилізовано)</p>
           ) : (
             <div className={styles.stack}>
-              {recentDowned.map((d) => (
-                <div key={d.id} className={styles.miniItem}>
-                  <div className={styles.split}>
-                    <strong className={styles.cardTitle}>{d.drone_id}</strong>
-                    <span className={`${styles.note} t-mono`}>{d.downed_time.split(' ')[1] || d.downed_time}</span>
-                  </div>
-                  <div className={styles.note}>
-                    Тип: <b>{d.drone_type}</b>
-                  </div>
-                  <div className={styles.note}>
-                    Зона падіння: {d.crash_zone}
-                  </div>
-                  <div className={styles.note}>
-                    Розліт уламків: <b className="t-mono">~{d.debris_radius_m} м</b>
-                  </div>
-                  {d.emergency_112_called && (
-                    <div style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.7rem', marginTop: 3 }}>
-                      🚨 Викликано ДСНС / 112 на місце падіння
+              {recentDowned.map((d) => {
+                const isMapa = d.data_source === 'live_mapa' || d.drone_id.startsWith('MAPA');
+                return (
+                  <div key={d.id} className={styles.miniItem}>
+                    <div className={styles.split}>
+                      <strong className={styles.cardTitle}>{d.drone_id}</strong>
+                      <span className={`${styles.note} t-mono`}>{d.downed_time.split(' ')[1] || d.downed_time}</span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div className={styles.split} style={{ margin: '3px 0' }}>
+                      <Badge tone={isMapa ? 'info' : 'neutral'}>
+                        {isMapa ? '🛰️ MAPA.UA' : '⚙️ СИМУЛЯЦІЯ'}
+                      </Badge>
+                      <span className={styles.note}>Тип: <b>{d.drone_type}</b></span>
+                    </div>
+                    <div className={styles.note}>
+                      Зона падіння: {d.crash_zone}
+                    </div>
+                    <div className={styles.note}>
+                      Розліт уламків: <b className="t-mono">~{d.debris_radius_m} м</b>
+                    </div>
+                    {d.emergency_112_called && (
+                      <div style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.7rem', marginTop: 3 }}>
+                        🚨 Викликано ДСНС / 112 на місце падіння
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

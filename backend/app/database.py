@@ -16,6 +16,7 @@ async def init_db():
         # Безпечне додавання нових колонок для наявної бази SQLite
         for col_def in [
             "drone_type VARCHAR DEFAULT 'Shahed-136 (Герань-2)'",
+            "data_source VARCHAR DEFAULT 'simulation'",
             "debris_radius_m FLOAT DEFAULT 120.0",
             "emergency_112_called BOOLEAN DEFAULT 0",
             "emergency_details VARCHAR DEFAULT ''"
