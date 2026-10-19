@@ -5,7 +5,8 @@ import {
   Crosshair, Zap, Plus, Camera, Mic,
   Eye, Target, ShieldAlert, ShieldCheck, AlertTriangle, Edit3,
   Play, Square, RotateCcw, Compass,
-  AlertOctagon, History, ArrowRight, PenTool, Users, Radio, Siren
+  AlertOctagon, History, ArrowRight, PenTool, Users, Radio, Siren,
+  Flame
 } from 'lucide-react';
 import { EditableObject } from './TacticalObjectModal';
 import { Button } from './ui/Button';
@@ -40,6 +41,7 @@ interface Props {
   onOpenAddModal: () => void;
   onEditObject: (obj: EditableObject) => void;
   onOpenHistoryPage: () => void;
+  onOpenHardTest?: () => void;
 }
 
 export const TargetHUD: React.FC<Props> = ({
@@ -47,7 +49,8 @@ export const TargetHUD: React.FC<Props> = ({
   sourceMode, mapaFeedMode, allowMapClickToAdd, isDrawingZone, simulationActive,
   autoTracking, emergencyOverride, threatInfo, onChangeSourceMode,
   onToggleMapClickToAdd, onStartDrawingZone, onToggleSimulation, onToggleAutoTracking,
-  onResetSimulation, onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage
+  onResetSimulation, onTriggerBurst, onOpenAddModal, onEditObject, onOpenHistoryPage,
+  onOpenHardTest
 }) => {
   return (
     <div className={styles.root}>
@@ -56,6 +59,9 @@ export const TargetHUD: React.FC<Props> = ({
           <Crosshair size={20} color="var(--info)" /> SURGICAL C2 EW
         </h2>
         <div className={styles.headActions}>
+          {/* <Button variant="danger" onClick={onOpenHardTest} title="Запустити Hard Test пришвидшеної симуляції">
+            <Flame size={14} /> HARD TEST
+          </Button> */}
           <Button variant="ghost" onClick={onOpenHistoryPage} title="Перейти до повного журналу збиттів">
             <History size={14} /> ЖУРНАЛ ({totalDownedCount})
           </Button>

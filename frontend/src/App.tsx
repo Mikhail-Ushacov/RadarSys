@@ -4,6 +4,7 @@ import { TacticalMap } from './components/TacticalMap';
 import { TargetHUD } from './components/TargetHUD';
 import { TacticalObjectModal, EditableObject } from './components/TacticalObjectModal';
 import { InterceptionHistoryPage } from './components/InterceptionHistoryPage';
+import { HardTestPage } from './components/HardTestPage';
 import { 
   TacticalUpdate, 
   Track, 
@@ -14,13 +15,13 @@ import {
   Emergency112Alert,
   DataSourceMode
 } from './types';
-import { Map as MapIcon, History as HistoryIcon, Sun, Moon } from 'lucide-react';
+import { Map as MapIcon, History as HistoryIcon, Sun, Moon, Flame } from 'lucide-react';
 import { Badge } from './components/ui';
 import s from './App.module.css';
 import { useTheme } from './theme';
 
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<'map' | 'history'>('map');
+  const [currentPage, setCurrentPage] = useState<'map' | 'history' | 'hard_test'>('map');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [ewNodes, setEwNodes] = useState<EWNode[]>([]);
   const [zones, setZones] = useState<TacticalZone[]>([]);
@@ -82,6 +83,7 @@ export const App: React.FC = () => {
         setThreatInfo(data.threat_info || null);
         if (data.recent_downed) setRecentDowned(data.recent_downed);
         if (data.total_downed_count !== undefined) setTotalDownedCount(data.total_downed_count);
+        // Виправлено ключ на правильний snake_case з types.ts:
         if (data.emergency_112_alert !== undefined) setEmergency112Alert(data.emergency_112_alert);
 
         const now = Date.now();
@@ -300,6 +302,13 @@ export const App: React.FC = () => {
             <Badge tone="info">{totalDownedCount}</Badge>
           </button>
           <button
+            className={`${s.tab} ${currentPage === 'hard_test' ? s.active : ''}`}
+            onClick={() => setCurrentPage('hard_test')}
+            style={{ color: currentPage === 'hard_test' ? '#f87171' : undefined }}
+          >
+            <Flame size={15} color="#ef4444" /> HARD TEST
+          </button>
+          <button
             className={s.tab}
             onClick={toggle}
             aria-label="theme"
@@ -311,6 +320,8 @@ export const App: React.FC = () => {
 
       {currentPage === 'history' ? (
         <InterceptionHistoryPage onBackToMap={() => setCurrentPage('map')} />
+      ) : currentPage === 'hard_test' ? (
+        <HardTestPage onBackToMap={() => setCurrentPage('map')} />
       ) : (
         <div className={s.body}>
           <TargetHUD 
@@ -338,6 +349,7 @@ export const App: React.FC = () => {
             onOpenAddModal={handleOpenAddModal}
             onEditObject={handleEditObject}
             onOpenHistoryPage={() => setCurrentPage('history')}
+            onOpenHardTest={() => setCurrentPage('hard_test')}
           />
           <div className={s.mapPane}>
             <TacticalMap 
